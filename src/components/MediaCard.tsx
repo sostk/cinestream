@@ -34,10 +34,13 @@ export const MediaCard = memo(function MediaCard({
   return (
     <FocusSurface
       onPress={onPress}
-      className={`rounded-2xl overflow-hidden ${focusedGlow ? 'border border-white/0' : ''}`}
+      className={`rounded-2xl overflow-hidden ${focusedGlow ? 'border border-white/12' : ''}`}
       accessibilityLabel={`${item.title}${item.subtitle ? `, ${item.subtitle}` : ''}`}
     >
-      <View style={{ width, height }} className="bg-elevated overflow-hidden rounded-2xl">
+      <View
+        style={{ width, height }}
+        className="bg-elevated overflow-hidden rounded-2xl shadow-lg shadow-black/40"
+      >
         <Image
           source={uri ? { uri } : undefined}
           style={{ width: '100%', height: '100%' }}
@@ -47,21 +50,26 @@ export const MediaCard = memo(function MediaCard({
           accessibilityIgnoresInvertColors
         />
         <LinearGradient
-          colors={['transparent', 'rgba(7,8,13,0.92)']}
+          colors={['transparent', 'rgba(7,8,13,0.88)']}
           style={{
             position: 'absolute',
             left: 0,
             right: 0,
             bottom: 0,
-            height: height * 0.42,
+            height: height * 0.45,
           }}
         />
-        <View className="absolute bottom-0 left-0 right-0 px-2 pb-2">
-          <Text numberOfLines={2} className="text-white text-xs font-semibold">
+        {item.mediaType ? (
+          <View className="absolute top-2 left-2 rounded-md bg-black/55 px-1.5 py-0.5 border border-white/12">
+            <Text className="text-white text-[9px] font-bold">{item.mediaType === 'tv' ? 'TV' : 'FILM'}</Text>
+          </View>
+        ) : null}
+        <View className="absolute bottom-0 left-0 right-0 px-2.5 pb-2 pt-6">
+          <Text numberOfLines={2} className="text-white text-[13px] font-bold leading-4">
             {item.title}
           </Text>
           {item.subtitle ? (
-            <Text numberOfLines={1} className="text-white/60 text-[11px] mt-0.5">
+            <Text numberOfLines={1} className="text-white/55 text-[11px] mt-1">
               {item.subtitle}
             </Text>
           ) : null}

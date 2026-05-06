@@ -7,6 +7,8 @@ import { SkeletonRow } from '@/components/SkeletonRow';
 
 type Props = {
   title: string;
+  /** Small uppercase label above the title (e.g. THIS WEEK) */
+  eyebrow?: string;
   data: MediaCardModel[];
   posterW: number;
   posterH: number;
@@ -16,6 +18,7 @@ type Props = {
 
 export const MediaRow = memo(function MediaRow({
   title,
+  eyebrow,
   data,
   posterW,
   posterH,
@@ -24,7 +27,7 @@ export const MediaRow = memo(function MediaRow({
 }: Props) {
   const renderItem = useCallback(
     ({ item }: { item: MediaCardModel }) => (
-      <View style={{ marginRight: 12 }}>
+      <View style={{ marginRight: 14 }}>
         <MediaCard
           item={item}
           width={posterW}
@@ -37,22 +40,27 @@ export const MediaRow = memo(function MediaRow({
   );
 
   if (isLoading) {
-    return <SkeletonRow title={title} cardW={posterW} cardH={posterH} />;
+    return <SkeletonRow title={title} eyebrow={eyebrow} cardW={posterW} cardH={posterH} />;
   }
 
   if (!data.length) return null;
 
   return (
-    <View className="mb-5">
-      <Text className="text-white text-lg font-semibold px-4 mb-3">{title}</Text>
+    <View className="mb-7">
+      <View className="px-4 mb-3">
+        {eyebrow ? (
+          <Text className="text-white/40 text-[11px] font-bold tracking-[0.2em] mb-1">{eyebrow}</Text>
+        ) : null}
+        <Text className="text-white text-xl font-bold tracking-tight">{title}</Text>
+      </View>
       <FlashList
         horizontal
         data={data}
         keyExtractor={(item) => String(item.id)}
         renderItem={renderItem}
         showsHorizontalScrollIndicator={false}
-        style={{ height: posterH + 6 }}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 4 }}
+        style={{ height: posterH + 8 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 2 }}
       />
     </View>
   );
