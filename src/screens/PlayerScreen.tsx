@@ -52,6 +52,7 @@ export function PlayerScreen() {
 
   const autoQuality = useSettingsStore((s) => s.autoQuality);
   const defaultRate = useSettingsStore((s) => s.defaultPlaybackRate);
+  const cineproBaseUrl = useSettingsStore((s) => s.cineproBaseUrl);
 
   const omss = useQuery({
     queryKey:
@@ -66,6 +67,7 @@ export function PlayerScreen() {
             season: params.season ?? 1,
             episode: params.episode ?? 1,
           }),
+    enabled: !!cineproBaseUrl.trim(),
     retry: (c, err: unknown) => {
       const status =
         typeof err === 'object' && err && 'status' in err ? (err as { status?: number }).status : undefined;

@@ -10,7 +10,7 @@ import { MissingKeysBanner } from '@/components/MissingKeysBanner';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
-import { TMDB_API_KEY } from '@/utils/env';
+import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 
 function toModel(hit: TmdbMultiSearchResult): MediaCardModel | null {
   if (hit.media_type === 'movie') {
@@ -41,8 +41,9 @@ export function SearchScreen() {
   const { posterW, posterH, overscanX } = useResponsive();
   const [q, setQ] = useState('');
   const debounced = useDebouncedValue(q, 380);
+  const hasTmdb = useHasConfiguredTmdbKey();
 
-  const enabled = debounced.trim().length >= 2 && !!TMDB_API_KEY;
+  const enabled = debounced.trim().length >= 2 && hasTmdb;
 
   const query = useInfiniteQuery({
     queryKey: ['tmdb', 'searchInfinite', debounced.trim()] as const,
@@ -80,7 +81,7 @@ export function SearchScreen() {
     [onSelect, overscanX, posterH, posterW]
   );
 
-  if (!TMDB_API_KEY) {
+  if (!hasTmdb) {
     return (
       <View className="flex-1 bg-ink px-4 pt-12">
         <MissingKeysBanner />

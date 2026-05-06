@@ -14,21 +14,25 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useLibraryStore, mediaStorageKey } from '@/store/libraryStore';
+import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 
 export function EpisodeBrowserScreen() {
   const navigation = useAppNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'EpisodeBrowser'>>();
   const { id, seasonNumber, title } = route.params;
   const { overscanX, sectionGap } = useResponsive();
+  const hasTmdb = useHasConfiguredTmdbKey();
 
   const season = useQuery({
     queryKey: qk.tvSeason(id, seasonNumber),
     queryFn: () => TmdbApi.tvSeason(id, seasonNumber),
+    enabled: hasTmdb,
   });
 
   const show = useQuery({
     queryKey: qk.tvDetail(id),
     queryFn: () => TmdbApi.tvDetail(id),
+    enabled: hasTmdb,
   });
 
   const episodes = season.data?.episodes ?? [];

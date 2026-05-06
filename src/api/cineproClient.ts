@@ -9,8 +9,12 @@ import {
 import { getOmssBaseUrl } from '@/api/runtimeConfig';
 
 function joinUrl(path: string): string {
+  const base = getOmssBaseUrl().trim();
+  if (!base) {
+    throw new OmssHttpError('Configure your CinePro Core (OMSS) URL in Settings.', 400);
+  }
   const p = path.startsWith('/') ? path : `/${path}`;
-  return `${getOmssBaseUrl()}${p}`;
+  return `${base}${p}`;
 }
 
 async function parseJsonSafe<T>(res: Response): Promise<T | undefined> {

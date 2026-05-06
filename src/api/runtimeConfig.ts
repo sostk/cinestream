@@ -1,6 +1,4 @@
-import { CINEPRO_BASE_URL } from '@/utils/env';
-
-let activeBase = CINEPRO_BASE_URL;
+let activeBase = '';
 
 export function getOmssBaseUrl(): string {
   return activeBase;

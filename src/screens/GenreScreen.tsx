@@ -11,7 +11,7 @@ import type { MediaCardModel } from '@/components/MediaCard';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { MissingKeysBanner } from '@/components/MissingKeysBanner';
-import { TMDB_API_KEY } from '@/utils/env';
+import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -20,6 +20,8 @@ export function GenreScreen() {
   const navigation = useAppNavigation();
   const { posterW, posterH, overscanX } = useResponsive();
   const { genreId, genreName, mediaType } = route.params;
+
+  const hasTmdb = useHasConfiguredTmdbKey();
 
   const query = useInfiniteQuery({
     queryKey: ['tmdb', 'genreInfinite', mediaType, genreId] as const,
@@ -35,7 +37,7 @@ export function GenreScreen() {
       const lp = last as { page: number; total_pages: number };
       return lp.page < lp.total_pages ? lp.page + 1 : undefined;
     },
-    enabled: !!TMDB_API_KEY,
+    enabled: hasTmdb,
   });
 
   const flat: MediaCardModel[] = useMemo(() => {
@@ -83,7 +85,7 @@ export function GenreScreen() {
     [onSelect, overscanX, posterH, posterW]
   );
 
-  if (!TMDB_API_KEY) {
+  if (!hasTmdb) {
     return (
       <View className="flex-1 bg-ink px-4 pt-16">
         <MissingKeysBanner />

@@ -14,6 +14,7 @@ import type { MediaCardModel } from '@/components/MediaCard';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import { tmdbImg } from '@/services/tmdbImages';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -28,16 +29,18 @@ export function TvDetailScreen() {
   const { posterW, posterH, overscanX, sectionGap, heroH } = useResponsive();
   const insets = useSafeAreaInsets();
   const [overviewExpanded, setOverviewExpanded] = useState(false);
+  const hasTmdb = useHasConfiguredTmdbKey();
 
   const detail = useQuery({
     queryKey: qk.tvDetail(id),
     queryFn: () => TmdbApi.tvDetail(id),
+    enabled: hasTmdb,
   });
 
   const rec = useQuery({
     queryKey: qk.recTv(id, 1),
     queryFn: () => TmdbApi.recommendationsTv(id, 1),
-    enabled: !!detail.data,
+    enabled: !!detail.data && hasTmdb,
   });
 
   const toggleWatchlist = useLibraryStore((s) => s.toggleWatchlist);

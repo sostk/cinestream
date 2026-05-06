@@ -17,8 +17,8 @@ export function MissingKeysBanner({ onOpenSettings }: Props) {
         <View className="flex-1">
           <Text className="text-white font-bold text-base">TMDB API key missing</Text>
           <Text className="text-white/65 text-sm mt-1.5 leading-5">
-            Add EXPO_PUBLIC_TMDB_API_KEY to your .env and restart Metro. TMDB powers the catalog; CinePro Core handles
-            streams (OMSS).
+            Open Settings and paste your TMDB API v3 key (stored on this device). You can also re-run setup from
+            Settings.
           </Text>
           {onOpenSettings ? (
             <FocusSurface

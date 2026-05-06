@@ -59,7 +59,7 @@ export const HeroCarousel = memo(function HeroCarousel({
           <LinearGradient colors={['#1a1f35', '#07080d', '#07080d']} style={{ flex: 1 }} />
           <View className="absolute bottom-8 left-6 right-6">
             <Text className="text-white/35 text-xs tracking-[3px] font-semibold">FEATURED</Text>
-            <Text className="text-white/50 text-base mt-2">Add your TMDB key to see spotlight titles.</Text>
+          <Text className="text-white/50 text-base mt-2">Add your TMDB API key in Settings to see spotlight titles.</Text>
           </View>
         </View>
       </View>

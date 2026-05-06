@@ -15,6 +15,8 @@ import type { MediaCardModel } from '@/components/MediaCard';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useLibraryStore, mediaStorageKey } from '@/store/libraryStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import { tmdbImg } from '@/services/tmdbImages';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -28,15 +30,19 @@ export function MovieDetailScreen() {
   const { posterW, posterH, overscanX, sectionGap, heroH } = useResponsive();
   const insets = useSafeAreaInsets();
   const [overviewExpanded, setOverviewExpanded] = useState(false);
+  const cineproBaseUrl = useSettingsStore((s) => s.cineproBaseUrl);
+  const hasTmdb = useHasConfiguredTmdbKey();
 
   const detail = useQuery({
     queryKey: qk.movieDetail(id),
     queryFn: () => TmdbApi.movieDetail(id),
+    enabled: hasTmdb,
   });
 
   const sources = useQuery({
     queryKey: qk.movieSources(id),
     queryFn: () => CineProApi.movieSources(id),
+    enabled: !!cineproBaseUrl.trim(),
     retry: (count, err: unknown) => {
       const status =
         typeof err === 'object' && err && 'status' in err ? (err as { status?: number }).status : undefined;
@@ -48,7 +54,7 @@ export function MovieDetailScreen() {
   const rec = useQuery({
     queryKey: qk.recMovies(id, 1),
     queryFn: () => TmdbApi.recommendationsMovies(id, 1),
-    enabled: !!detail.data,
+    enabled: !!detail.data && hasTmdb,
   });
 
   const toggleWatchlist = useLibraryStore((s) => s.toggleWatchlist);

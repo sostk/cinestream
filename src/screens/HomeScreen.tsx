@@ -11,7 +11,7 @@ import { HeroCarousel } from '@/components/HeroCarousel';
 import { MediaRow } from '@/components/MediaRow';
 import { MissingKeysBanner } from '@/components/MissingKeysBanner';
 import { useResponsive } from '@/hooks/useResponsive';
-import { TMDB_API_KEY } from '@/utils/env';
+import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import type { TmdbGenre, TmdbMovieListResult, TmdbTvListResult } from '@/api/types/tmdb';
 
@@ -41,28 +41,29 @@ export function HomeScreen() {
   const navigation = useAppNavigation();
   const insets = useSafeAreaInsets();
   const { posterW, posterH, heroH, overscanX, sectionGap } = useResponsive();
+  const hasTmdb = useHasConfiguredTmdbKey();
   const trendingMovies = useQuery({
     queryKey: qk.trendingMovies(1),
     queryFn: () => TmdbApi.trendingMovies(1),
-    enabled: !!TMDB_API_KEY,
+    enabled: hasTmdb,
   });
 
   const trendingTv = useQuery({
     queryKey: qk.trendingTv(1),
     queryFn: () => TmdbApi.trendingTv(1),
-    enabled: !!TMDB_API_KEY,
+    enabled: hasTmdb,
   });
 
   const discoverMovies = useQuery({
     queryKey: qk.discoverMovies(1),
     queryFn: () => TmdbApi.discoverMovies({ page: 1 }),
-    enabled: !!TMDB_API_KEY,
+    enabled: hasTmdb,
   });
 
   const genres = useQuery({
     queryKey: qk.genresMovie,
     queryFn: () => TmdbApi.movieGenres(),
-    enabled: !!TMDB_API_KEY,
+    enabled: hasTmdb,
   });
 
   const heroItems = useMemo((): MediaCardModel[] => {
@@ -138,7 +139,7 @@ export function HomeScreen() {
         </View>
       </LinearGradient>
 
-      {!TMDB_API_KEY ? (
+      {!hasTmdb ? (
         <MissingKeysBanner onOpenSettings={() => navigation.navigate('Settings' as never)} />
       ) : null}
 

@@ -1,4 +1,5 @@
-import { TMDB_API_BASE, TMDB_API_KEY } from '@/utils/env';
+import { TMDB_API_BASE } from '@/utils/env';
+import { getEffectiveTmdbApiKey } from '@/utils/tmdbCredentials';
 import { sleep } from '@/utils/sleep';
 import type {
   TmdbGenre,
@@ -23,15 +24,16 @@ export class TmdbHttpError extends Error {
 }
 
 function ensureKey(): string {
-  if (!TMDB_API_KEY) {
-    throw new TmdbHttpError('Missing EXPO_PUBLIC_TMDB_API_KEY', 401);
+  const key = getEffectiveTmdbApiKey();
+  if (!key) {
+    throw new TmdbHttpError('TMDB API key not configured', 401);
   }
-  return TMDB_API_KEY;
+  return key;
 }
 
 async function tmdbGet<T>(path: string, params?: Record<string, string | number | undefined>) {
-  ensureKey();
-  const qs = new URLSearchParams({ api_key: TMDB_API_KEY });
+  const apiKey = ensureKey();
+  const qs = new URLSearchParams({ api_key: apiKey });
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined) continue;

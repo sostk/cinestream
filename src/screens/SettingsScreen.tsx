@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Alert, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,8 +10,10 @@ import { setOmssBaseUrl } from '@/api/runtimeConfig';
 import { CineProApi } from '@/api/cineproClient';
 import { qk } from '@/api/queryKeys';
 import type { OmssHealthResponse } from '@/api/types/omss';
-import { CINEPRO_BASE_URL } from '@/utils/env';
+import { CINEPRO_ENV_BASE_URL } from '@/utils/env';
 import { FocusSurface } from '@/tv/FocusSurface';
+
+const OMSS_URL_PLACEHOLDER = CINEPRO_ENV_BASE_URL || 'https://your-core.example.com';
 
 function healthCardClasses(status: OmssHealthResponse['status'] | undefined, hasError: boolean): string {
   if (hasError || !status) return 'border-white/12 bg-white/[0.06]';
@@ -49,6 +51,9 @@ export function SettingsScreen() {
   const { sectionGap } = useResponsive();
   const cineproBaseUrl = useSettingsStore((s) => s.cineproBaseUrl);
   const setUrl = useSettingsStore((s) => s.setCineproBaseUrl);
+  const tmdbApiKey = useSettingsStore((s) => s.tmdbApiKey);
+  const setTmdbKey = useSettingsStore((s) => s.setTmdbApiKey);
+  const reopenOnboarding = useSettingsStore((s) => s.reopenOnboarding);
   const autoQuality = useSettingsStore((s) => s.autoQuality);
   const setAutoQuality = useSettingsStore((s) => s.setAutoQuality);
   const defaultPlaybackRate = useSettingsStore((s) => s.defaultPlaybackRate);
@@ -57,13 +62,10 @@ export function SettingsScreen() {
   const health = useQuery({
     queryKey: qk.health,
     queryFn: () => CineProApi.health(),
+    enabled: !!cineproBaseUrl.trim(),
     retry: 1,
     staleTime: 30_000,
   });
-
-  useEffect(() => {
-    setOmssBaseUrl(cineproBaseUrl);
-  }, [cineproBaseUrl]);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,11 +112,27 @@ export function SettingsScreen() {
     >
       <Text className="text-white text-3xl font-bold mb-6">Settings</Text>
 
+      <Text className="text-white/60 text-xs mb-2">TMDB API key</Text>
+      <TextInput
+        value={tmdbApiKey}
+        onChangeText={(t) => setTmdbKey(t)}
+        placeholder="Paste API v3 key"
+        placeholderTextColor="rgba(255,255,255,0.35)"
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry
+        className="rounded-2xl bg-white/10 border border-white/10 px-4 py-3 text-white mb-2"
+        accessibilityLabel="TMDB API key"
+      />
+      <Text className="text-white/40 text-[11px] mb-6 leading-4">
+        Stored only on this device. Catalog and artwork use TMDB; playback uses your Core URL below.
+      </Text>
+
       <Text className="text-white/60 text-xs mb-2">CinePro Core base URL (OMSS)</Text>
       <TextInput
         value={cineproBaseUrl}
         onChangeText={(t) => setUrl(t)}
-        placeholder={CINEPRO_BASE_URL}
+        placeholder={OMSS_URL_PLACEHOLDER}
         placeholderTextColor="rgba(255,255,255,0.35)"
         autoCapitalize="none"
         className="rounded-2xl bg-white/10 border border-white/10 px-4 py-3 text-white mb-4"
@@ -174,8 +192,9 @@ export function SettingsScreen() {
         className="self-start rounded-xl bg-accent px-4 py-2 mb-10"
         onPress={() => {
           setOmssBaseUrl(cineproBaseUrl);
-          queryClient.invalidateQueries({ queryKey: ['omss'] });
-          Alert.alert('Applied', 'OMSS base URL updated and caches invalidated.');
+          void queryClient.invalidateQueries({ queryKey: ['omss'] });
+          void queryClient.invalidateQueries({ queryKey: ['tmdb'] });
+          Alert.alert('Applied', 'URLs and keys synced; caches refreshed.');
         }}
       >
         <Text className="text-white font-semibold">Apply & refresh OMSS</Text>
@@ -205,10 +224,26 @@ export function SettingsScreen() {
         </View>
       </View>
 
-      <Text className="text-white/45 text-xs mt-8 leading-5">
-        Streams come from your self-hosted CinePro Core instance following OMSS v1.0 (movies, TV episodes, proxy,
-        refresh). Discovery metadata uses TMDB via EXPO_PUBLIC_TMDB_API_KEY. LG webOS can consume the Expo web bundle
-        with focus-friendly markup; tvOS/Android TV targets should use native TV builds.
+      <FocusSurface
+        className="self-start rounded-xl bg-white/10 border border-white/12 px-4 py-3 mb-8 mt-2"
+        onPress={() =>
+          Alert.alert(
+            'Run setup again?',
+            'You will return to the connection wizard. Your saved keys stay until you change them.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Continue', onPress: () => reopenOnboarding() },
+            ]
+          )
+        }
+      >
+        <Text className="text-white font-semibold text-sm">Re-run setup wizard</Text>
+      </FocusSurface>
+
+      <Text className="text-white/45 text-xs mt-2 leading-5">
+        Optional: developers can still set defaults via EXPO_PUBLIC_TMDB_API_KEY and EXPO_PUBLIC_CINEPRO_BASE_URL at build
+        time—the onboarding flow and Settings override them at runtime on this device. Streams follow OMSS v1.0 from your
+        Core instance.
       </Text>
     </ScrollView>
   );
