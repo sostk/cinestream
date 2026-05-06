@@ -11,6 +11,7 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
+import { GRID_LIST_SIDE_PADDING, GRID_ROW_GAP, gridPosterSlotDimensions } from '@/utils/layout';
 
 function toModel(hit: TmdbMultiSearchResult): MediaCardModel | null {
   if (hit.media_type === 'movie') {
@@ -38,7 +39,8 @@ function toModel(hit: TmdbMultiSearchResult): MediaCardModel | null {
 
 export function SearchScreen() {
   const navigation = useAppNavigation();
-  const { posterW, posterH, overscanX } = useResponsive();
+  const { overscanX, gridColumns: numColumns, windowWidth } = useResponsive();
+  const { posterW, posterH, slotW } = gridPosterSlotDimensions(windowWidth, overscanX, numColumns);
   const [q, setQ] = useState('');
   const debounced = useDebouncedValue(q, 380);
   const hasTmdb = useHasConfiguredTmdbKey();
@@ -74,11 +76,11 @@ export function SearchScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: MediaCardModel }) => (
-      <View style={{ paddingHorizontal: overscanX / 2, paddingBottom: 16 }}>
+      <View style={{ width: slotW, alignItems: 'center', paddingBottom: GRID_ROW_GAP }}>
         <MediaCard item={item} width={posterW} height={posterH} onPress={() => onSelect(item)} />
       </View>
     ),
-    [onSelect, overscanX, posterH, posterW]
+    [onSelect, posterH, posterW, slotW]
   );
 
   if (!hasTmdb) {
@@ -89,31 +91,40 @@ export function SearchScreen() {
     );
   }
 
+  const listPad = GRID_LIST_SIDE_PADDING + overscanX;
+
   return (
-    <View className="flex-1 bg-ink pt-12" style={{ paddingHorizontal: overscanX }}>
-      <Text className="text-white text-2xl font-bold px-4 mb-4">Search</Text>
-      <TextInput
-        value={q}
-        onChangeText={setQ}
-        placeholder="Titles, people, keywords…"
-        placeholderTextColor="rgba(255,255,255,0.35)"
-        className="mx-4 mb-4 rounded-2xl bg-white/10 text-white px-4 py-3 border border-white/10"
-        accessibilityLabel="Search catalog"
-        autoCorrect={false}
-      />
+    <View className="flex-1 bg-ink pt-12">
+      <View style={{ paddingHorizontal: listPad }}>
+        <Text className="text-white text-2xl font-bold mb-4">Search</Text>
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="Titles, people, keywords…"
+          placeholderTextColor="rgba(255,255,255,0.35)"
+          className="mb-4 rounded-2xl bg-white/10 text-white px-4 py-3 border border-white/10"
+          accessibilityLabel="Search catalog"
+          autoCorrect={false}
+        />
+      </View>
 
       {query.isFetching ? (
         <ActivityIndicator color="#fff" style={{ marginTop: 24 }} />
       ) : null}
 
       {!enabled ? (
-        <Text className="text-white/50 px-6">Type at least two characters to search TMDB.</Text>
+        <Text style={{ paddingHorizontal: listPad }} className="text-white/50">
+          Type at least two characters to search TMDB.
+        </Text>
       ) : (
         <FlashList
           data={flat}
           renderItem={renderItem}
           keyExtractor={(item) => String(item.id)}
+          numColumns={numColumns}
+          extraData={`${numColumns}-${posterW}-${windowWidth}`}
           style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: 32 }}
           onEndReached={() => query.fetchNextPage()}
           onEndReachedThreshold={0.7}
         />

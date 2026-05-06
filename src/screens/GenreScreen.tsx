@@ -9,6 +9,7 @@ import { TmdbApi } from '@/api/tmdbClient';
 import { MediaCard } from '@/components/MediaCard';
 import type { MediaCardModel } from '@/components/MediaCard';
 import { useResponsive } from '@/hooks/useResponsive';
+import { GRID_LIST_SIDE_PADDING, GRID_ROW_GAP, gridPosterSlotDimensions } from '@/utils/layout';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { MissingKeysBanner } from '@/components/MissingKeysBanner';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
@@ -18,7 +19,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 export function GenreScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'Genre'>>();
   const navigation = useAppNavigation();
-  const { posterW, posterH, overscanX } = useResponsive();
+  const { overscanX, gridColumns: numColumns, windowWidth } = useResponsive();
+  const { posterW, posterH, slotW } = gridPosterSlotDimensions(windowWidth, overscanX, numColumns);
   const { genreId, genreName, mediaType } = route.params;
 
   const hasTmdb = useHasConfiguredTmdbKey();
@@ -78,11 +80,11 @@ export function GenreScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: MediaCardModel }) => (
-      <View style={{ paddingHorizontal: overscanX / 2, paddingBottom: 16 }}>
+      <View style={{ width: slotW, alignItems: 'center', paddingBottom: GRID_ROW_GAP }}>
         <MediaCard item={item} width={posterW} height={posterH} onPress={() => onSelect(item)} />
       </View>
     ),
-    [onSelect, overscanX, posterH, posterW]
+    [onSelect, posterH, posterW, slotW]
   );
 
   if (!hasTmdb) {
@@ -93,9 +95,11 @@ export function GenreScreen() {
     );
   }
 
+  const listPad = GRID_LIST_SIDE_PADDING + overscanX;
+
   return (
     <View className="flex-1 bg-ink pt-14">
-      <View style={{ paddingHorizontal: overscanX }} className="flex-row items-center mb-4">
+      <View style={{ paddingHorizontal: listPad }} className="flex-row items-center mb-4">
         <FocusSurface
           className="rounded-full bg-black/45 border border-white/15 px-3 py-2 mr-3"
           onPress={() => navigation.goBack()}
@@ -110,7 +114,10 @@ export function GenreScreen() {
         data={flat}
         renderItem={renderItem}
         keyExtractor={(item) => String(item.id)}
+        numColumns={numColumns}
+        extraData={`${numColumns}-${posterW}-${windowWidth}`}
         style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: 32, paddingTop: 8 }}
         onEndReached={() => query.fetchNextPage()}
         onEndReachedThreshold={0.65}
       />

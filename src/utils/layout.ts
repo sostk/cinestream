@@ -94,6 +94,36 @@ export function spacing(scale: number): number {
   return Math.round(base * scale);
 }
 
+/** Horizontal inset for grid lists (matches typical `px-4` section padding). */
+export const GRID_LIST_SIDE_PADDING = 16;
+
+/** Gap between poster columns in Search / Genre grids. */
+export const GRID_COLUMN_GAP = 12;
+
+/** Gap between poster rows in Search / Genre grids. */
+export const GRID_ROW_GAP = 16;
+
+/**
+ * Poster cell size for a vertical grid (Search, Browse by genre).
+ * Uses full inner width so cards span the screen instead of a single skinny column.
+ */
+export function gridPosterSlotDimensions(
+  windowWidth: number,
+  overscanX: number,
+  columns: number
+): { posterW: number; posterH: number; innerWidth: number; slotW: number } {
+  const hPad = GRID_LIST_SIDE_PADDING + overscanX;
+  const innerWidth = Math.max(0, windowWidth - hPad * 2);
+  const cols = Math.max(1, columns);
+  const posterW = Math.max(
+    72,
+    Math.floor((innerWidth - GRID_COLUMN_GAP * (cols - 1)) / cols)
+  );
+  const posterH = Math.round((posterW * 3) / 2);
+  const slotW = innerWidth / cols;
+  return { posterW, posterH, innerWidth, slotW };
+}
+
 export function fontScale(base: number): number {
   const dc = deviceClass();
   const multiplier =
