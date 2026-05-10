@@ -57,6 +57,8 @@ export function SettingsScreen() {
   const setAutoQuality = useSettingsStore((s) => s.setAutoQuality);
   const defaultPlaybackRate = useSettingsStore((s) => s.defaultPlaybackRate);
   const setRate = useSettingsStore((s) => s.setDefaultPlaybackRate);
+  const autoplayNextEpisode = useSettingsStore((s) => s.autoplayNextEpisode);
+  const setAutoplayNextEpisode = useSettingsStore((s) => s.setAutoplayNextEpisode);
 
   const baseKey = cineproBaseUrl.trim();
   const health = useQuery({
@@ -216,6 +218,15 @@ export function SettingsScreen() {
       <View className="flex-row items-center justify-between py-3 border-t border-white/10">
         <Text className="text-white text-base flex-1 pr-4">Auto quality selection</Text>
         <Switch value={autoQuality} onValueChange={setAutoQuality} accessibilityLabel="Toggle auto quality" />
+      </View>
+
+      <View className="flex-row items-center justify-between py-3 border-t border-white/10">
+        <Text className="text-white text-base flex-1 pr-4">Autoplay next episode</Text>
+        <Switch
+          value={autoplayNextEpisode}
+          onValueChange={setAutoplayNextEpisode}
+          accessibilityLabel="Toggle autoplay next episode"
+        />
       </View>
 
       <View className="py-4 border-t border-white/10">

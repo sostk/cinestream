@@ -8,15 +8,17 @@ type SettingsState = {
   hasCompletedOnboarding: boolean;
   autoQuality: boolean;
   defaultPlaybackRate: number;
+  autoplayNextEpisode: boolean;
   setCineproBaseUrl: (url: string) => void;
   setTmdbApiKey: (key: string) => void;
   completeOnboarding: (payload: { tmdbApiKey: string; cineproBaseUrl: string }) => void;
   reopenOnboarding: () => void;
   setAutoQuality: (v: boolean) => void;
   setDefaultPlaybackRate: (r: number) => void;
+  setAutoplayNextEpisode: (v: boolean) => void;
 };
 
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
@@ -26,6 +28,7 @@ export const useSettingsStore = create<SettingsState>()(
       hasCompletedOnboarding: false,
       autoQuality: true,
       defaultPlaybackRate: 1,
+      autoplayNextEpisode: true,
 
       setCineproBaseUrl: (url) => set({ cineproBaseUrl: url.trim().replace(/\/$/, '') }),
 
@@ -42,6 +45,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       setAutoQuality: (v) => set({ autoQuality: v }),
       setDefaultPlaybackRate: (r) => set({ defaultPlaybackRate: r }),
+      setAutoplayNextEpisode: (v) => set({ autoplayNextEpisode: v }),
     }),
     {
       name: 'cinestream-settings',
@@ -53,6 +57,7 @@ export const useSettingsStore = create<SettingsState>()(
         hasCompletedOnboarding: s.hasCompletedOnboarding,
         autoQuality: s.autoQuality,
         defaultPlaybackRate: s.defaultPlaybackRate,
+        autoplayNextEpisode: s.autoplayNextEpisode,
       }),
       migrate: (persistedState, version) => {
         const p = persistedState as Partial<{
@@ -60,6 +65,7 @@ export const useSettingsStore = create<SettingsState>()(
           autoQuality: boolean;
           defaultPlaybackRate: number;
           tmdbApiKey: string;
+          autoplayNextEpisode: boolean;
         }>;
 
         if (version < SETTINGS_VERSION) {
@@ -69,6 +75,7 @@ export const useSettingsStore = create<SettingsState>()(
             defaultPlaybackRate: typeof p.defaultPlaybackRate === 'number' ? p.defaultPlaybackRate : 1,
             tmdbApiKey: typeof p.tmdbApiKey === 'string' ? p.tmdbApiKey : '',
             hasCompletedOnboarding: true,
+            autoplayNextEpisode: typeof p.autoplayNextEpisode === 'boolean' ? p.autoplayNextEpisode : true,
           };
         }
 
@@ -78,6 +85,7 @@ export const useSettingsStore = create<SettingsState>()(
           defaultPlaybackRate: number;
           tmdbApiKey: string;
           hasCompletedOnboarding: boolean;
+          autoplayNextEpisode: boolean;
         };
       },
     }
