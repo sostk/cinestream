@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -308,18 +309,13 @@ export function PlayerScreen() {
 
   return (
     <View className="flex-1 bg-black">
-      <Pressable
-        className="flex-1"
-        onPress={() => {
-          if (settingsOpen) return;
-          setHud((h) => !h);
-        }}
-      >
-        {uri ? (
+      {uri ? (
+        <View className="flex-1" collapsable={false}>
           <Video
             ref={videoRef}
             source={{ uri }}
             style={{ flex: 1 }}
+            useTextureView={Platform.OS === 'android'}
             resizeMode="contain"
             paused={paused}
             rate={rate}
@@ -352,7 +348,19 @@ export function PlayerScreen() {
               </View>
             )}
           />
-        ) : (
+          {!Platform.isTV ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show or hide playback controls"
+              style={[StyleSheet.absoluteFillObject, { zIndex: 1 }]}
+              onPress={() => {
+                if (settingsOpen) return;
+                setHud((h) => !h);
+              }}
+            />
+          ) : null}
+        </View>
+      ) : (
           <View className="flex-1 items-center justify-center px-10 gap-5">
             <LinearGradient
               colors={['rgba(229,9,20,0.22)', 'rgba(0,0,0,0)']}
@@ -399,10 +407,15 @@ export function PlayerScreen() {
               </Pressable>
             ) : null}
           </View>
-        )}
+      )}
 
-        {buffering && uri ? (
-          <View className="absolute inset-0 items-center justify-center pointer-events-none">
+      {(buffering && uri) || (!Platform.isTV && hud && paused) || hud ? (
+        <View pointerEvents="box-none" style={[StyleSheet.absoluteFillObject, { zIndex: 2 }]}>
+          {buffering && uri ? (
+            <View
+              pointerEvents="none"
+              className="absolute inset-0 items-center justify-center"
+            >
             <BlurView intensity={22} tint="dark" className="rounded-3xl overflow-hidden border border-white/12 px-8 py-6">
               <View className="flex-row items-center gap-4">
                 <ActivityIndicator size="large" color="#fff" />
@@ -627,7 +640,8 @@ export function PlayerScreen() {
             </View>
           </>
         ) : null}
-      </Pressable>
+      </View>
+      ) : null}
 
       <Modal
         visible={settingsOpen}
