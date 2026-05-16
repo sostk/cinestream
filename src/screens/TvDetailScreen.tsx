@@ -5,7 +5,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery } from '@tanstack/react-query';
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackParamList } from '@/navigation/types';
 import { qk } from '@/api/queryKeys';
 import { TmdbApi } from '@/api/tmdbClient';
@@ -25,7 +24,7 @@ import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import { tmdbImg } from '@/services/tmdbImages';
 import { useAppTheme } from '@/theme/AppThemeProvider';
-import { ThemedBackButton } from '@/theme/themedPrimitives';
+import { DetailBackdropHero } from '@/components/DetailBackdropHero';
 import { useThemedStyles } from '@/hooks/useThemedStyles';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { TmdbSeasonSummary } from '@/api/types/tmdb';
@@ -43,7 +42,6 @@ export function TvDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'TvDetail'>>();
   const { id } = route.params;
   const { posterW, posterH, overscanX, sectionGap, heroH } = useResponsive();
-  const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const ts = useThemedStyles();
   const [overviewExpanded, setOverviewExpanded] = useState(false);
@@ -192,24 +190,14 @@ export function TvDetailScreen() {
       style={{ flex: 1, backgroundColor: colors.ink }}
       contentContainerStyle={{ paddingBottom: sectionGap * 10 }}
       showsVerticalScrollIndicator={false}
+      removeClippedSubviews={false}
     >
-      <View className="relative w-full" style={{ height: heroH }}>
-        <Image
-          source={backdropUri ? { uri: backdropUri } : undefined}
-          style={{ width: '100%', height: '100%' }}
-          contentFit="cover"
-          transition={300}
-          cachePolicy="memory-disk"
-        />
-        <LinearGradient
-          colors={colors.heroGradient}
-          locations={[0, 0.55, 1]}
-          style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
-        />
-        <View style={{ position: 'absolute', left: hp, right: hp, top: insets.top + 10 }}>
-          <ThemedBackButton onPress={() => navigation.goBack()} />
-        </View>
-      </View>
+      <DetailBackdropHero
+        backdropUri={backdropUri}
+        heroHeight={heroH}
+        horizontalPadding={hp}
+        onBack={() => navigation.goBack()}
+      />
 
       <View style={{ paddingHorizontal: hp, marginTop: -72 }}>
         <View

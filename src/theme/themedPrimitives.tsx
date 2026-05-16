@@ -86,18 +86,42 @@ export function SectionHeader({
 export function ThemedBackButton({
   onPress,
   accessibilityLabel = 'Go back',
+  variant = 'default',
 }: {
   onPress: () => void;
   accessibilityLabel?: string;
+  /** Circular control over photos/video — no full-width bar look */
+  variant?: 'default' | 'onMedia';
 }) {
   const { colors } = useAppTheme();
+
+  if (variant === 'onMedia') {
+    return (
+      <FocusSurface
+        onPress={onPress}
+        accessibilityLabel={accessibilityLabel}
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: 21,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgba(0,0,0,0.42)',
+        }}
+      >
+        <Ionicons name="chevron-back" color="#ffffff" size={26} />
+      </FocusSurface>
+    );
+  }
+
   return (
     <FocusSurface
       className="rounded-full px-3 py-2"
       style={{
-        backgroundColor: colors.overlay,
-        borderColor: colors.borderStrong,
+        backgroundColor: colors.inputBg,
+        borderColor: colors.border,
         borderWidth: 1,
+        alignSelf: 'flex-start',
       }}
       onPress={onPress}
       accessibilityLabel={accessibilityLabel}

@@ -1,14 +1,11 @@
 import React, { useCallback, useMemo } from 'react';
 import { RefreshControl, ScrollView, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { TmdbApi } from '@/api/tmdbClient';
 import { qk } from '@/api/queryKeys';
 import type { MediaCardModel } from '@/components/MediaCard';
-import { AppLogo } from '@/components/AppLogo';
-import { HeroCarousel } from '@/components/HeroCarousel';
+import { HomeHeroSection } from '@/components/HomeHeroSection';
 import { useAppTheme } from '@/theme/AppThemeProvider';
 import { MediaRow } from '@/components/MediaRow';
 import { MissingKeysBanner } from '@/components/MissingKeysBanner';
@@ -45,7 +42,6 @@ export function HomeScreen() {
   const navigation = useAppNavigation();
   const { colors } = useAppTheme();
   const ts = useThemedStyles();
-  const insets = useSafeAreaInsets();
   const { posterW, posterH, heroH, overscanX, sectionGap } = useResponsive();
   const hasTmdb = useHasConfiguredTmdbKey();
   const trendingMovies = useQuery({
@@ -130,29 +126,24 @@ export function HomeScreen() {
         paddingBottom: sectionGap * 10,
       }}
       showsVerticalScrollIndicator={false}
+      removeClippedSubviews={false}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.accent} />
       }
     >
-      <LinearGradient
-        colors={colors.gradientHero}
-        locations={[0, 0.35, 1]}
-        style={{
-          paddingTop: Math.max(insets.top, 12),
-          paddingBottom: sectionGap * 2,
-          paddingHorizontal: hp,
-        }}
-      >
-        <View className="flex-row items-center justify-between gap-4 mb-1">
-          <AppLogo width={128} height={34} />
-        </View>
-      </LinearGradient>
+      <HomeHeroSection
+        heroHeight={heroH}
+        horizontalPadding={hp}
+        overscanX={overscanX}
+        items={heroItems}
+        onOpenActive={onOpenHero}
+      />
 
       {!hasTmdb ? (
-        <MissingKeysBanner onOpenSettings={() => navigation.navigate('Settings' as never)} />
+        <View style={{ marginTop: sectionGap * 2 }}>
+          <MissingKeysBanner onOpenSettings={() => navigation.navigate('Settings' as never)} />
+        </View>
       ) : null}
-
-      <HeroCarousel heroHeight={heroH} items={heroItems} overscanX={overscanX} onOpenActive={onOpenHero} />
 
       {genreChips.length ? (
         <View style={{ marginTop: sectionGap * 2.5, paddingHorizontal: hp }}>
