@@ -1,10 +1,10 @@
 import React, { useCallback, useMemo } from 'react';
-import { ActivityIndicator, Alert, Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery } from '@tanstack/react-query';
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
-import type { RootStackParamList, PlayerRouteParams } from '@/navigation/types';
+import type { RootStackParamList } from '@/navigation/types';
 import { qk } from '@/api/queryKeys';
 import { TmdbApi } from '@/api/tmdbClient';
 import { FocusSurface } from '@/tv/FocusSurface';
@@ -13,10 +13,9 @@ import { tmdbImg } from '@/services/tmdbImages';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
-import { useLibraryStore, mediaStorageKey } from '@/store/libraryStore';
-import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { useSettingsStore } from '@/store/settingsStore';
-import { usePrefetchEpisodeSources } from '@/player/usePrefetchEpisodeSources';
+import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
+import { usePlayTvEpisode } from '@/player/usePlayTvEpisode';
 import { resolveStreamReadyState } from '@/player/streamAvailability';
 
 export function EpisodeBrowserScreen() {
@@ -41,110 +40,16 @@ export function EpisodeBrowserScreen() {
   });
 
   const episodes = season.data?.episodes ?? [];
-  const continueWatching = useLibraryStore((s) => s.continueWatching);
+  const showTitle = show.data?.name ?? 'Series';
 
-  const episodeNumbers = useMemo(
-    () => episodes.map((e) => e.episode_number),
-    [episodes]
-  );
-
-  const prefetchQueries = usePrefetchEpisodeSources(
-    id,
+  const { playEpisode, episodeQueryByNumber, readyCount } = usePlayTvEpisode({
+    tmdbId: id,
     seasonNumber,
-    episodeNumbers,
-    coreConfigured && episodeNumbers.length > 0
-  );
-
-  const episodeQueryByNumber = useMemo(() => {
-    const map = new Map<number, (typeof prefetchQueries)[number]>();
-    episodeNumbers.forEach((num, idx) => {
-      map.set(num, prefetchQueries[idx]);
-    });
-    return map;
-  }, [episodeNumbers, prefetchQueries]);
-
-  const readyCount = useMemo(
-    () =>
-      prefetchQueries.filter(
-        (q) => resolveStreamReadyState(coreConfigured, q).status === 'ready'
-      ).length,
-    [coreConfigured, prefetchQueries]
-  );
-
-  const resumeForEp = useCallback(
-    (episodeNumber: number) => {
-      const key = mediaStorageKey({ mediaType: 'tv', tmdbId: id, season: seasonNumber, episode: episodeNumber });
-      return continueWatching.find((c) => c.mediaKey === key)?.positionSec;
-    },
-    [continueWatching, id, seasonNumber]
-  );
-
-  const playEpisode = useCallback(
-    (episodeNumber: number, episodeTitle: string) => {
-      const q = episodeQueryByNumber.get(episodeNumber);
-      const streamState = resolveStreamReadyState(
-        coreConfigured,
-        q ?? { isPending: true, isFetching: true, isError: false, error: null, data: undefined }
-      );
-
-      const go = () => {
-        const idx = episodes.findIndex((e) => e.episode_number === episodeNumber);
-        const nextEp = idx >= 0 ? episodes[idx + 1] : undefined;
-        const showTitle = show.data?.name ?? 'Series';
-
-        const base: PlayerRouteParams = {
-          title: `${showTitle} · ${episodeTitle}`,
-          mediaType: 'tv',
-          tmdbId: id,
-          season: seasonNumber,
-          episode: episodeNumber,
-          episodeTitle,
-          posterPath: show.data?.poster_path,
-          backdropPath: show.data?.backdrop_path,
-          resumeSec: resumeForEp(episodeNumber),
-          next: nextEp
-            ? {
-                mediaType: 'tv',
-                tmdbId: id,
-                season: seasonNumber,
-                episode: nextEp.episode_number,
-                episodeTitle: nextEp.name,
-                showTitle,
-                posterPath: show.data?.poster_path,
-                backdropPath: show.data?.backdrop_path,
-              }
-            : undefined,
-        };
-
-        navigation.navigate('Player', base);
-      };
-
-      if (streamState.status === 'ready') {
-        go();
-        return;
-      }
-      if (streamState.status === 'loading') {
-        Alert.alert(streamState.title, streamState.message, [
-          { text: 'Wait', style: 'cancel' },
-          { text: 'Open player', onPress: go },
-        ]);
-        return;
-      }
-      Alert.alert(streamState.title, streamState.message);
-    },
-    [
-      coreConfigured,
-      episodeQueryByNumber,
-      episodes,
-      id,
-      navigation,
-      resumeForEp,
-      seasonNumber,
-      show.data?.backdrop_path,
-      show.data?.name,
-      show.data?.poster_path,
-    ]
-  );
+    episodes,
+    showTitle,
+    posterPath: show.data?.poster_path,
+    backdropPath: show.data?.backdrop_path,
+  });
 
   const renderItem = useCallback(
     ({ item }: { item: (typeof episodes)[number] }) => {

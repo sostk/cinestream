@@ -7,6 +7,17 @@ export type RootStackParamList = {
   Player: PlayerRouteParams;
 };
 
+export type PlayerEpisodeRef = {
+  mediaType: 'tv';
+  tmdbId: number;
+  season: number;
+  episode: number;
+  episodeTitle?: string;
+  showTitle?: string;
+  posterPath?: string | null;
+  backdropPath?: string | null;
+};
+
 export type PlayerRouteParams = {
   title: string;
   mediaType: 'movie' | 'tv';
@@ -14,19 +25,12 @@ export type PlayerRouteParams = {
   season?: number;
   episode?: number;
   episodeTitle?: string;
+  showTitle?: string;
   posterPath?: string | null;
   backdropPath?: string | null;
   resumeSec?: number;
-  next?: {
-    mediaType: 'tv';
-    tmdbId: number;
-    season: number;
-    episode: number;
-    episodeTitle?: string;
-    showTitle?: string;
-    posterPath?: string | null;
-    backdropPath?: string | null;
-  };
+  prev?: PlayerEpisodeRef;
+  next?: PlayerEpisodeRef;
 };
 
 export type MainTabParamList = {

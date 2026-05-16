@@ -1,8 +1,8 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, LayoutAnimation, Platform, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,11 +15,12 @@ import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { tvEpisodeSourcesQueryOptions } from '@/player/playbackSourceQuery';
 import {
   resolveStreamReadyState,
   streamAvailabilityDetailLine,
 } from '@/player/streamAvailability';
+import { buildTvPlayerParams } from '@/player/playerEpisodeNav';
+import { usePlayTvEpisode } from '@/player/usePlayTvEpisode';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import { tmdbImg } from '@/services/tmdbImages';
@@ -27,6 +28,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { TmdbSeasonSummary } from '@/api/types/tmdb';
 
 const OVERVIEW_PREVIEW_LINES = 5;
+
+function seasonChipLabel(season: TmdbSeasonSummary): string {
+  if (season.season_number === 0) return 'Specials';
+  if (/season/i.test(season.name)) return season.name;
+  return `S${season.season_number}`;
+}
 
 export function TvDetailScreen() {
   const navigation = useAppNavigation();
@@ -65,14 +72,9 @@ export function TvDetailScreen() {
   const seasons = detail.data?.seasons ?? [];
 
   const playableSeasons = useMemo(
-    () => seasons.filter((s) => s.season_number >= 0),
+    () => [...seasons.filter((s) => s.season_number >= 0)].sort((a, b) => a.season_number - b.season_number),
     [seasons]
   );
-
-  const defaultSeason = useMemo(() => {
-    const byOne = playableSeasons.find((s) => s.season_number === 1);
-    return byOne ?? playableSeasons[0];
-  }, [playableSeasons]);
 
   const continueEpisode = useMemo(() => {
     const rows = continueWatching
@@ -81,31 +83,59 @@ export function TvDetailScreen() {
     return rows[0];
   }, [continueWatching, id]);
 
-  const prefetchTargets = useMemo(() => {
-    const targets: { season: number; episode: number }[] = [];
-    if (defaultSeason) targets.push({ season: defaultSeason.season_number, episode: 1 });
-    if (
-      continueEpisode?.season != null &&
-      continueEpisode.episode != null &&
-      !targets.some(
-        (t) => t.season === continueEpisode.season && t.episode === continueEpisode.episode
-      )
-    ) {
-      targets.push({ season: continueEpisode.season, episode: continueEpisode.episode });
+  const preferredSeasonNumber = useMemo(() => {
+    if (continueEpisode?.season != null) {
+      const match = playableSeasons.find((s) => s.season_number === continueEpisode.season);
+      if (match) return match.season_number;
     }
-    return targets;
-  }, [continueEpisode, defaultSeason]);
+    const s1 = playableSeasons.find((s) => s.season_number === 1);
+    return s1?.season_number ?? playableSeasons[0]?.season_number ?? 1;
+  }, [continueEpisode?.season, playableSeasons]);
 
-  const prefetchQueries = useQueries({
-    queries: prefetchTargets.map(({ season, episode }) =>
-      tvEpisodeSourcesQueryOptions(id, season, episode, coreConfigured)
-    ),
+  const [selectedSeasonNumber, setSelectedSeasonNumber] = useState(preferredSeasonNumber);
+
+  useEffect(() => {
+    setSelectedSeasonNumber(preferredSeasonNumber);
+  }, [id, preferredSeasonNumber]);
+
+  const selectedSeasonSummary = useMemo(
+    () => playableSeasons.find((s) => s.season_number === selectedSeasonNumber),
+    [playableSeasons, selectedSeasonNumber]
+  );
+
+  const seasonDetail = useQuery({
+    queryKey: qk.tvSeason(id, selectedSeasonNumber),
+    queryFn: () => TmdbApi.tvSeason(id, selectedSeasonNumber),
+    enabled: hasTmdb && selectedSeasonNumber >= 0,
   });
 
-  const primaryPrefetch = prefetchQueries[0];
+  const seasonEpisodes = seasonDetail.data?.episodes ?? [];
+  const showTitle = detail.data?.name ?? 'Series';
+
+  const { playEpisode, episodeQueryByNumber, readyCount } = usePlayTvEpisode({
+    tmdbId: id,
+    seasonNumber: selectedSeasonNumber,
+    episodes: seasonEpisodes,
+    showTitle,
+    posterPath: detail.data?.poster_path,
+    backdropPath: detail.data?.backdrop_path,
+    prefetchEnabled: seasonEpisodes.length > 0,
+  });
+
+  const primaryPrefetch = episodeQueryByNumber.get(seasonEpisodes[0]?.episode_number ?? 1);
   const streamState = useMemo(
-    () => resolveStreamReadyState(coreConfigured, primaryPrefetch ?? { isPending: false, isFetching: false, isError: false, error: null, data: undefined }),
-    [coreConfigured, primaryPrefetch]
+    () =>
+      resolveStreamReadyState(
+        coreConfigured,
+        primaryPrefetch ?? {
+          isPending: seasonDetail.isLoading,
+          isFetching: seasonDetail.isFetching,
+          isError: seasonDetail.isError,
+          error: seasonDetail.error,
+          data: undefined,
+        }
+      ),
+    [coreConfigured, primaryPrefetch, seasonDetail.error, seasonDetail.isError, seasonDetail.isFetching, seasonDetail.isLoading]
   );
 
   const runtimes = detail.data?.episode_run_time?.filter((n) => n > 0) ?? [];
@@ -129,20 +159,19 @@ export function TvDetailScreen() {
   const posterUri = tmdbImg(detail.data?.poster_path, 'w500');
   const d = detail.data;
 
-  const openSeason = useCallback(
-    (season: TmdbSeasonSummary) => {
-      navigation.navigate('EpisodeBrowser', {
-        id,
-        seasonNumber: season.season_number,
-        title: `${d?.name ?? 'Show'} · ${season.name}`,
-      });
-    },
-    [d?.name, id, navigation]
-  );
+  const openSeasonBrowser = useCallback(() => {
+    if (!selectedSeasonSummary) return;
+    navigation.navigate('EpisodeBrowser', {
+      id,
+      seasonNumber: selectedSeasonNumber,
+      title: `${showTitle} · ${selectedSeasonSummary.name}`,
+    });
+  }, [id, navigation, selectedSeasonNumber, selectedSeasonSummary, showTitle]);
 
-  const openDefaultSeason = useCallback(() => {
-    if (defaultSeason) openSeason(defaultSeason);
-  }, [defaultSeason, openSeason]);
+  const selectSeason = useCallback((seasonNumber: number) => {
+    if (Platform.OS !== 'web') LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectedSeasonNumber(seasonNumber);
+  }, []);
 
   const loading = detail.isPending;
 
@@ -291,34 +320,179 @@ export function TvDetailScreen() {
                   </View>
                 ) : null}
 
-                <View className="mt-6 gap-3">
-                  {defaultSeason ? (
-                    <FocusSurface
-                      className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 shadow-lg ${
-                        streamState.status === 'ready' || streamState.status === 'loading'
-                          ? 'bg-accent'
-                          : 'bg-white/14 border border-white/16'
-                      }`}
-                      onPress={openDefaultSeason}
-                      accessibilityLabel="Browse episodes"
-                    >
-                      {streamState.status === 'loading' ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <Ionicons name="list-circle-outline" color="#fff" size={24} />
-                      )}
-                      <Text className="text-white font-bold text-base">
-                        Episodes · {defaultSeason.name}
-                      </Text>
-                    </FocusSurface>
-                  ) : (
-                    <View className="rounded-2xl bg-white/8 border border-white/12 py-4 px-4">
-                      <Text className="text-white/70 text-center text-sm">
-                        Season list isn’t available yet. Try again when you’re online.
+                {continueEpisode?.season != null && continueEpisode.episode != null ? (
+                  <FocusSurface
+                    className="mt-6 rounded-2xl py-4 px-4 flex-row items-center gap-3 bg-accent shadow-lg active:opacity-90"
+                    onPress={() => {
+                      const epNum = continueEpisode.episode!;
+                      const epTitle =
+                        continueEpisode.episodeTitle ?? `Episode ${epNum}`;
+                      navigation.navigate(
+                        'Player',
+                        buildTvPlayerParams({
+                          tmdbId: id,
+                          seasonNumber: continueEpisode.season!,
+                          episodeNumber: epNum,
+                          episodeTitle: epTitle,
+                          showTitle,
+                          episodes:
+                            continueEpisode.season === selectedSeasonNumber && seasonEpisodes.length
+                              ? seasonEpisodes
+                              : [{ episode_number: epNum, name: epTitle }],
+                          posterPath: d?.poster_path,
+                          backdropPath: d?.backdrop_path,
+                          resumeSec: continueEpisode.positionSec,
+                        })
+                      );
+                    }}
+                    accessibilityLabel="Resume watching"
+                  >
+                    <Ionicons name="play-circle" color="#fff" size={28} />
+                    <View className="flex-1">
+                      <Text className="text-white font-bold text-base">Resume</Text>
+                      <Text className="text-white/80 text-sm mt-0.5">
+                        S{continueEpisode.season} · E{continueEpisode.episode}
+                        {continueEpisode.episodeTitle ? ` · ${continueEpisode.episodeTitle}` : ''}
                       </Text>
                     </View>
+                  </FocusSurface>
+                ) : null}
+
+                <View className="mt-6 gap-3">
+                  <View className="flex-row items-center justify-between gap-2">
+                    <Text className="text-white/55 text-xs uppercase tracking-widest">Seasons</Text>
+                    {playableSeasons.length > 0 ? (
+                      <FocusSurface className="py-1 px-1 active:opacity-80" onPress={openSeasonBrowser}>
+                        <Text className="text-accent text-xs font-bold">Full list</Text>
+                      </FocusSurface>
+                    ) : null}
+                  </View>
+
+                  {playableSeasons.length === 0 ? (
+                    <Text className="text-white/45 text-sm">No seasons to show.</Text>
+                  ) : (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
+                    >
+                      {playableSeasons.map((season) => {
+                        const active = season.season_number === selectedSeasonNumber;
+                        return (
+                          <FocusSurface
+                            key={season.id}
+                            className={`rounded-full px-4 py-2.5 border ${
+                              active ? 'bg-accent border-accent' : 'bg-white/10 border-white/14 active:bg-white/16'
+                            }`}
+                            onPress={() => selectSeason(season.season_number)}
+                            accessibilityLabel={season.name}
+                            accessibilityState={{ selected: active }}
+                          >
+                            <Text
+                              className={`font-bold text-sm ${active ? 'text-white' : 'text-white/85'}`}
+                              numberOfLines={1}
+                            >
+                              {seasonChipLabel(season)}
+                            </Text>
+                          </FocusSurface>
+                        );
+                      })}
+                    </ScrollView>
                   )}
 
+                  <View className="flex-row items-center justify-between mt-1">
+                    <Text className="text-white font-semibold text-[15px] flex-1" numberOfLines={1}>
+                      {selectedSeasonSummary?.name ?? `Season ${selectedSeasonNumber}`}
+                    </Text>
+                    {seasonDetail.isLoading ? (
+                      <ActivityIndicator color="#e50914" size="small" />
+                    ) : (
+                      <Text className="text-white/45 text-xs">
+                        {seasonEpisodes.length} ep · {readyCount} ready
+                      </Text>
+                    )}
+                  </View>
+
+                  {seasonDetail.isError ? (
+                    <View className="rounded-2xl bg-white/8 border border-white/12 py-4 px-4">
+                      <Text className="text-white/70 text-center text-sm">
+                        Couldn’t load episodes. Check your connection and TMDB key.
+                      </Text>
+                    </View>
+                  ) : seasonDetail.isLoading ? (
+                    <View className="py-8 items-center">
+                      <ActivityIndicator color="#e50914" size="large" />
+                    </View>
+                  ) : seasonEpisodes.length === 0 ? (
+                    <Text className="text-white/45 text-sm py-4">No episodes in this season.</Text>
+                  ) : (
+                    <View className="gap-2.5">
+                      {seasonEpisodes.map((item) => {
+                        const uri = tmdbImg(item.still_path ?? d?.poster_path, 'w500');
+                        const epState = resolveStreamReadyState(
+                          coreConfigured,
+                          episodeQueryByNumber.get(item.episode_number) ?? {
+                            isPending: true,
+                            isFetching: true,
+                            isError: false,
+                            error: null,
+                            data: undefined,
+                          }
+                        );
+                        const epReady = epState.status === 'ready';
+                        const epLoading = epState.status === 'loading';
+                        const isContinue =
+                          continueEpisode?.season === selectedSeasonNumber &&
+                          continueEpisode.episode === item.episode_number;
+
+                        return (
+                          <FocusSurface
+                            key={item.id}
+                            className={`rounded-2xl overflow-hidden border ${
+                              isContinue
+                                ? 'bg-accent/15 border-accent/40'
+                                : 'bg-white/6 border-white/10 active:bg-white/10'
+                            }`}
+                            onPress={() => playEpisode(item.episode_number, item.name)}
+                            accessibilityLabel={`Play episode ${item.episode_number} ${item.name}`}
+                          >
+                            <View className="flex-row">
+                              <Image
+                                source={uri ? { uri } : undefined}
+                                style={{ width: 128, height: 72 }}
+                                contentFit="cover"
+                                cachePolicy="memory-disk"
+                              />
+                              <View className="flex-1 p-3 justify-center">
+                                <View className="flex-row items-center gap-2">
+                                  <Text className="text-white font-semibold flex-1" numberOfLines={2}>
+                                    E{item.episode_number}: {item.name}
+                                  </Text>
+                                  {epLoading ? (
+                                    <ActivityIndicator color="#e50914" size="small" />
+                                  ) : epReady ? (
+                                    <Ionicons name="cloud-done-outline" color="#e50914" size={18} />
+                                  ) : null}
+                                </View>
+                                {isContinue ? (
+                                  <Text className="text-accent text-[11px] font-bold mt-1 uppercase tracking-wide">
+                                    Continue
+                                  </Text>
+                                ) : item.overview ? (
+                                  <Text className="text-white/50 text-xs mt-1.5" numberOfLines={2}>
+                                    {item.overview}
+                                  </Text>
+                                ) : null}
+                              </View>
+                            </View>
+                          </FocusSurface>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+
+                <View className="mt-6 gap-3">
                   <View className="flex-row gap-3">
                     <FocusSurface
                       className="flex-1 rounded-2xl bg-white/10 border border-white/14 py-3.5 flex-row items-center justify-center gap-2"
@@ -361,7 +535,7 @@ export function TvDetailScreen() {
                   </View>
                 </View>
 
-                {defaultSeason ? (
+                {selectedSeasonSummary ? (
                   <View className="mt-5 rounded-2xl bg-white/[0.06] border border-white/10 p-4">
                     <View className="flex-row items-center gap-2 mb-2">
                       <Ionicons
@@ -379,54 +553,14 @@ export function TvDetailScreen() {
                     </View>
                     <Text className="text-white/65 text-sm leading-5">
                       {streamState.status === 'ready'
-                        ? `Prefetching S${defaultSeason.season_number} · ${streamAvailabilityDetailLine(
+                        ? `Prefetching ${selectedSeasonSummary.name} · ${streamAvailabilityDetailLine(
                             streamState,
                             primaryPrefetch?.data?.expiresAt
                           )}`
                         : streamAvailabilityDetailLine(streamState)}
                     </Text>
-                    {continueEpisode?.season != null && continueEpisode.episode != null ? (
-                      <Text className="text-white/45 text-xs mt-2">
-                        Also prefetching S{continueEpisode.season}:E{continueEpisode.episode} from Continue
-                        watching
-                      </Text>
-                    ) : null}
                   </View>
                 ) : null}
-
-                <Text className="text-white/55 text-xs uppercase tracking-widest mt-8 mb-3">Seasons</Text>
-                {playableSeasons.length === 0 ? (
-                  <Text className="text-white/45 text-sm mb-1">No seasons to show.</Text>
-                ) : (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
-                    {playableSeasons.map((item) => {
-                      const art = tmdbImg(item.poster_path ?? d?.poster_path, 'w342');
-                      return (
-                        <FocusSurface
-                          key={item.id}
-                          className="w-[132px] rounded-2xl overflow-hidden bg-white/8 border border-white/12"
-                          onPress={() => openSeason(item)}
-                          accessibilityLabel={`${item.name}, ${item.episode_count} episodes`}
-                        >
-                          <Image
-                            source={art ? { uri: art } : undefined}
-                            style={{ width: '100%', aspectRatio: 16 / 9 }}
-                            contentFit="cover"
-                            cachePolicy="memory-disk"
-                          />
-                          <View className="p-3 gap-1">
-                            <Text className="text-white font-bold text-sm" numberOfLines={2}>
-                              {item.name}
-                            </Text>
-                            <Text className="text-white/50 text-xs">
-                              {item.episode_count} episode{item.episode_count === 1 ? '' : 's'}
-                            </Text>
-                          </View>
-                        </FocusSurface>
-                      );
-                    })}
-                  </ScrollView>
-                )}
               </>
             )}
           </View>

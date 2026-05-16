@@ -27,6 +27,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
+import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useAnimatedStyle,
@@ -35,7 +36,12 @@ import Animated, {
   withTiming,
   interpolate,
 } from 'react-native-reanimated';
-import type { RootStackParamList, PlayerRouteParams } from '@/navigation/types';
+import type { RootStackParamList, PlayerEpisodeRef, PlayerRouteParams } from '@/navigation/types';
+import { qk } from '@/api/queryKeys';
+import { TmdbApi } from '@/api/tmdbClient';
+import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
+import { buildTvPlayerParams, resolveTvNeighbors } from '@/player/playerEpisodeNav';
+import { PlayerEpisodeSidebar } from '@/player/PlayerEpisodeSidebar';
 import {
   buildPlaybackRequest,
   pickAutoSource,
@@ -65,9 +71,11 @@ import {
   sniffDrmHint,
 } from '@/player/streamUtils';
 import { loadPlayerSelection, savePlayerSelection } from '@/player/selectionsStorage';
+import { PlayerDisplayHudControls } from '@/player/PlayerDisplayHudControls';
 import { PlayerProgressBar } from '@/player/PlayerProgressBar';
 import { PlayerSettingsModal } from '@/player/PlayerSettingsModal';
 import { resolveStreamReadyState } from '@/player/streamAvailability';
+import { aspectRatioValue, formatAspectLabel } from '@/player/playerDisplay';
 
 const RATES = [0.75, 1, 1.25, 1.5, 2] as const;
 
@@ -126,6 +134,10 @@ export function PlayerScreen() {
   const cineproBaseUrl = useSettingsStore((s) => s.cineproBaseUrl);
   const autoplayNextEpisode = useSettingsStore((s) => s.autoplayNextEpisode);
   const setDefaultPlaybackRate = useSettingsStore((s) => s.setDefaultPlaybackRate);
+  const playerResizeMode = useSettingsStore((s) => s.playerResizeMode);
+  const playerAspectMode = useSettingsStore((s) => s.playerAspectMode);
+  const setPlayerResizeMode = useSettingsStore((s) => s.setPlayerResizeMode);
+  const setPlayerAspectMode = useSettingsStore((s) => s.setPlayerAspectMode);
 
   const coreConfigured = !!cineproBaseUrl.trim();
   const { omss, sorted, sourceIndex, setSourceIndex, activeSource, sortedKey } = usePlaybackSources({
@@ -151,6 +163,7 @@ export function PlayerScreen() {
   const [duration, setDuration] = useState(0);
   const [hud, setHud] = useState(Platform.isTV);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [episodeListOpen, setEpisodeListOpen] = useState(false);
   const [controlsLocked, setControlsLocked] = useState(false);
   const playbackExhaustedRef = useRef(false);
   const [playbackAttempt, setPlaybackAttempt] = useState(0);
@@ -185,8 +198,41 @@ export function PlayerScreen() {
   const [preferredVideoIdx, setPreferredVideoIdx] = useState(-1);
   const [gestureHud, setGestureHud] = useState<{ kind: 'brightness'; value: number } | null>(null);
   const brightnessGestureStart = useRef(1);
+  const [videoNaturalSize, setVideoNaturalSize] = useState({ width: 0, height: 0 });
 
   const upsertContinue = useLibraryStore((s) => s.upsertContinue);
+  const continueWatching = useLibraryStore((s) => s.continueWatching);
+  const hasTmdb = useHasConfiguredTmdbKey();
+
+  const isTvEpisode =
+    params.mediaType === 'tv' && params.season != null && params.episode != null;
+
+  const seasonQuery = useQuery({
+    queryKey: qk.tvSeason(params.tmdbId, params.season ?? 0),
+    queryFn: () => TmdbApi.tvSeason(params.tmdbId, params.season!),
+    enabled: hasTmdb && isTvEpisode,
+  });
+
+  const seasonEpisodes = seasonQuery.data?.episodes ?? [];
+
+  const tvNeighbors = useMemo(
+    () => resolveTvNeighbors(params, seasonEpisodes),
+    [params, seasonEpisodes]
+  );
+
+  const resumeByEpisode = useMemo(() => {
+    if (!isTvEpisode || params.season == null) return {};
+    const map: Record<number, number> = {};
+    for (const row of continueWatching) {
+      if (row.mediaType !== 'tv' || row.tmdbId !== params.tmdbId || row.season !== params.season) {
+        continue;
+      }
+      if (row.episode != null && row.positionSec > 30) {
+        map[row.episode] = row.positionSec;
+      }
+    }
+    return map;
+  }, [continueWatching, isTvEpisode, params.season, params.tmdbId]);
 
   const mediaKey = useMemo(
     () =>
@@ -299,6 +345,7 @@ export function PlayerScreen() {
     setNativeVideoTracks([]);
     setPreferredAudioIdx(0);
     setPreferredVideoIdx(-1);
+    setVideoNaturalSize({ width: 0, height: 0 });
   }, [activeSource ? sourceSignature(activeSource) : '', fallbackCtl]);
 
   useEffect(() => () => {
@@ -425,20 +472,71 @@ export function PlayerScreen() {
 
   const scheduleHudHide = useCallback(() => {
     clearHudTimer();
-    if (Platform.isTV || settingsOpen || paused || controlsLocked) return;
+    if (Platform.isTV || settingsOpen || episodeListOpen || paused || controlsLocked) return;
     hudHideTimer.current = setTimeout(() => setHud(false), 5200);
-  }, [clearHudTimer, controlsLocked, paused, settingsOpen]);
+  }, [clearHudTimer, controlsLocked, episodeListOpen, paused, settingsOpen]);
 
   useEffect(() => {
-    if (!hud || Platform.isTV || settingsOpen || paused || controlsLocked) {
+    if (!hud || Platform.isTV || settingsOpen || episodeListOpen || paused || controlsLocked) {
       clearHudTimer();
       return;
     }
     scheduleHudHide();
     return clearHudTimer;
-  }, [controlsLocked, hud, paused, scheduleHudHide, settingsOpen, clearHudTimer]);
+  }, [controlsLocked, episodeListOpen, hud, paused, scheduleHudHide, settingsOpen, clearHudTimer]);
+
+  const goToEpisodeRef = useCallback(
+    (ref: PlayerEpisodeRef) => {
+      const ep = seasonEpisodes.find((e) => e.episode_number === ref.episode);
+      const showTitle =
+        ref.showTitle ?? params.showTitle ?? params.title.split(' · ')[0]?.trim() ?? 'Series';
+      const resumeKey = mediaStorageKey({
+        mediaType: 'tv',
+        tmdbId: ref.tmdbId,
+        season: ref.season,
+        episode: ref.episode,
+      });
+      const savedResume = continueWatching.find((c) => c.mediaKey === resumeKey)?.positionSec;
+      const nextParams = buildTvPlayerParams({
+        tmdbId: ref.tmdbId,
+        seasonNumber: ref.season,
+        episodeNumber: ref.episode,
+        episodeTitle: ref.episodeTitle ?? ep?.name ?? `Episode ${ref.episode}`,
+        showTitle,
+        episodes: seasonEpisodes.length
+          ? seasonEpisodes
+          : [{ episode_number: ref.episode, name: ref.episodeTitle ?? `Episode ${ref.episode}` }],
+        posterPath: ref.posterPath ?? params.posterPath,
+        backdropPath: ref.backdropPath ?? params.backdropPath,
+        resumeSec: savedResume,
+      });
+      navigation.replace('Player', nextParams);
+      setEpisodeListOpen(false);
+    },
+    [continueWatching, navigation, params, seasonEpisodes]
+  );
+
+  const playEpisodeAt = useCallback(
+    (episodeNumber: number, episodeTitle: string) => {
+      goToEpisodeRef({
+        mediaType: 'tv',
+        tmdbId: params.tmdbId,
+        season: params.season!,
+        episode: episodeNumber,
+        episodeTitle,
+        showTitle: params.showTitle,
+        posterPath: params.posterPath,
+        backdropPath: params.backdropPath,
+      });
+    },
+    [goToEpisodeRef, params]
+  );
 
   useAndroidTVBack(() => {
+    if (episodeListOpen) {
+      setEpisodeListOpen(false);
+      return true;
+    }
     if (settingsOpen) {
       setSettingsOpen(false);
       return true;
@@ -448,25 +546,15 @@ export function PlayerScreen() {
   });
 
   useEffect(() => {
-    if (!params.next || !autoplayNextEpisode) return;
+    if (!tvNeighbors.next || !autoplayNextEpisode) return;
     if (!duration) return;
     const left = duration - position;
     if (left > 22 || left < 0) return;
     const id = setTimeout(() => {
-      const n = params.next!;
-      navigation.replace('Player', {
-        title: `${n.showTitle ?? ''} · ${n.episodeTitle ?? `Episode ${n.episode}`}`,
-        mediaType: 'tv',
-        tmdbId: n.tmdbId,
-        season: n.season,
-        episode: n.episode,
-        episodeTitle: n.episodeTitle,
-        posterPath: n.posterPath,
-        backdropPath: n.backdropPath,
-      });
+      goToEpisodeRef(tvNeighbors.next!);
     }, 11_000);
     return () => clearTimeout(id);
-  }, [autoplayNextEpisode, duration, navigation, params.next, position]);
+  }, [autoplayNextEpisode, duration, goToEpisodeRef, position, tvNeighbors.next]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
@@ -536,6 +624,8 @@ export function PlayerScreen() {
 
   /** Larger tap targets, thicker chrome, and thumb-friendly scrub strip on Android phones. */
   const isAndroidPhone = Platform.OS === 'android' && !Platform.isTV;
+  const detectedAspectLabel = formatAspectLabel(videoNaturalSize.width, videoNaturalSize.height);
+  const framedAspectRatio = isAndroidPhone ? aspectRatioValue(playerAspectMode) : undefined;
   const chromeBottomPad = Math.max(insets.bottom, isAndroidPhone ? 22 : 16);
   const chromeTopPad = Math.max(insets.top, isAndroidPhone ? 14 : 10);
   const gestureEdgeW = isAndroidPhone ? 92 : 76;
@@ -554,40 +644,6 @@ export function PlayerScreen() {
     setSettingsOpen(true);
     clearHudTimer();
   };
-
-  const markIntroAtPlayhead = useCallback(() => {
-    const introSec = Math.floor(position);
-    upsertContinue({
-      mediaKey,
-      mediaType: params.mediaType,
-      tmdbId: params.tmdbId,
-      title: params.title,
-      posterPath: params.posterPath,
-      backdropPath: params.backdropPath,
-      season: params.season,
-      episode: params.episode,
-      episodeTitle: params.episodeTitle,
-      positionSec: position,
-      durationSec: duration || Math.max(1, position),
-      updatedAt: Date.now(),
-      introSkipEndSec: introSec,
-    });
-    if (!Platform.isTV) scheduleHudHide();
-  }, [
-    duration,
-    mediaKey,
-    params.backdropPath,
-    params.episode,
-    params.episodeTitle,
-    params.mediaType,
-    params.posterPath,
-    params.season,
-    params.title,
-    params.tmdbId,
-    position,
-    scheduleHudHide,
-    upsertContinue,
-  ]);
 
   const showNoSourcesLeftDialog = useCallback(() => {
     if (playbackExhaustedRef.current) return;
@@ -746,14 +802,29 @@ export function PlayerScreen() {
 
       {uri ? (
         <View className="flex-1" collapsable={false}>
-          <Video
-            ref={videoRef}
-            key={`${activeSource ? sourceSignature(activeSource) : 'no-source'}:${sourceIndex}:${playbackAttempt}`}
-            source={videoSource}
-            style={{ flex: 1 }}
-            viewType={Platform.OS === 'android' ? ViewType.TEXTURE : undefined}
-            resizeMode="cover"
-            paused={paused}
+          <View
+            className="flex-1"
+            style={
+              framedAspectRatio
+                ? { justifyContent: 'center', alignItems: 'center' }
+                : undefined
+            }
+          >
+            <View
+              style={
+                framedAspectRatio
+                  ? { width: '100%', aspectRatio: framedAspectRatio, maxHeight: '100%' }
+                  : { flex: 1, alignSelf: 'stretch' }
+              }
+            >
+              <Video
+                ref={videoRef}
+                key={`${activeSource ? sourceSignature(activeSource) : 'no-source'}:${sourceIndex}:${playbackAttempt}`}
+                source={videoSource}
+                style={{ flex: 1 }}
+                viewType={Platform.OS === 'android' ? ViewType.TEXTURE : undefined}
+                resizeMode={isAndroidPhone ? playerResizeMode : 'cover'}
+                paused={paused}
             rate={rate}
             volume={1}
             progressUpdateInterval={450}
@@ -765,6 +836,12 @@ export function PlayerScreen() {
               fallbackCtl.onPlaying();
               setSourceSwitchNotice(null);
               clearSourceSwitchTimer();
+              if (data.naturalSize?.width && data.naturalSize?.height) {
+                setVideoNaturalSize({
+                  width: data.naturalSize.width,
+                  height: data.naturalSize.height,
+                });
+              }
               setNativeAudioTracks(data.audioTracks ?? []);
               setNativeVideoTracks(data.videoTracks ?? []);
               playbackLogger.info('Video loaded', {
@@ -793,6 +870,15 @@ export function PlayerScreen() {
               onSeekEnd();
             }}
             onError={onPlaybackError}
+            onAspectRatio={
+              isAndroidPhone
+                ? (e) => {
+                    if (e.width > 0 && e.height > 0) {
+                      setVideoNaturalSize({ width: e.width, height: e.height });
+                    }
+                  }
+                : undefined
+            }
             textTracks={textTracks}
             selectedTextTrack={
               subtitleTrack >= 0
@@ -810,7 +896,9 @@ export function PlayerScreen() {
                 <ActivityIndicator color="#e50914" size="large" />
               </View>
             )}
-          />
+              />
+            </View>
+          </View>
 
           {!Platform.isTV ? (
             <View
@@ -1044,7 +1132,11 @@ export function PlayerScreen() {
                   position: 'absolute',
                   top: chromeTopPad,
                   left: dockPadX,
+                  right: dockPadX,
                   zIndex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
               >
                 <FocusSurface
@@ -1056,6 +1148,21 @@ export function PlayerScreen() {
                 >
                   <Ionicons name="chevron-down" color="#fff" size={isAndroidPhone ? 26 : 24} />
                 </FocusSurface>
+
+                {isTvEpisode ? (
+                  <FocusSurface
+                    className="rounded-full items-center justify-center bg-accent active:opacity-90 flex-row gap-2 px-4"
+                    style={{ height: circleBtn, minWidth: circleBtn }}
+                    hitSlop={iconHitSlop}
+                    onPress={() => setEpisodeListOpen(true)}
+                    accessibilityLabel="Choose episode"
+                  >
+                    <Ionicons name="list" color="#fff" size={isAndroidPhone ? 20 : 18} />
+                    <Text className="text-white font-bold text-[13px]">
+                      S{params.season} E{params.episode}
+                    </Text>
+                  </FocusSurface>
+                ) : null}
               </View>
 
               <View
@@ -1083,7 +1190,7 @@ export function PlayerScreen() {
                   </FocusSurface>
                 ) : null}
 
-                {params.next && duration - position < 32 ? (
+                {tvNeighbors.next && duration - position < 32 ? (
                   <View className="rounded-2xl overflow-hidden border border-accent/35 bg-black/55 mb-1">
                     <View className="flex-row gap-3 p-3">
                       <View className="w-[72px] h-[48px] rounded-xl overflow-hidden bg-white/10">
@@ -1102,7 +1209,7 @@ export function PlayerScreen() {
                           Up next
                         </Text>
                         <Text className="text-white font-semibold text-[14px]" numberOfLines={2}>
-                          {params.next.episodeTitle ?? `Episode ${params.next.episode}`}
+                          {tvNeighbors.next.episodeTitle ?? `Episode ${tvNeighbors.next.episode}`}
                         </Text>
                         <Text className="text-white/50 text-[11px]">
                           {autoplayNextEpisode
@@ -1114,26 +1221,16 @@ export function PlayerScreen() {
                     <View className="flex-row border-t border-white/10">
                       <Pressable
                         className="flex-1 py-3 border-r border-white/10"
-                        onPress={() => {
-                          const n = params.next!;
-                          navigation.replace('Player', {
-                            title: `${n.showTitle ?? ''} · ${n.episodeTitle ?? `Episode ${n.episode}`}`,
-                            mediaType: 'tv',
-                            tmdbId: n.tmdbId,
-                            season: n.season,
-                            episode: n.episode,
-                            episodeTitle: n.episodeTitle,
-                            posterPath: n.posterPath,
-                            backdropPath: n.backdropPath,
-                          });
-                        }}
+                        onPress={() => goToEpisodeRef(tvNeighbors.next!)}
                       >
                         <Text className="text-accent text-center font-bold text-[13px]">Play now</Text>
                       </Pressable>
                       <Pressable
                         className="flex-1 py-3"
                         onPress={() =>
-                          navigation.setParams({ next: undefined } as Partial<PlayerRouteParams>)
+                          navigation.setParams({
+                            next: undefined,
+                          } as Partial<PlayerRouteParams>)
                         }
                       >
                         <Text className="text-white/70 text-center font-semibold text-[13px]">Dismiss</Text>
@@ -1168,18 +1265,36 @@ export function PlayerScreen() {
                   formatDuration={formatDuration}
                 />
 
-                <View
-                  className={`flex-row items-center justify-center ${isAndroidPhone ? 'gap-5 mt-1' : 'gap-4'}`}
-                >
-                  <FocusSurface
-                    className="rounded-full items-center justify-center bg-accent active:opacity-90"
-                    style={{ width: circleBtn, height: circleBtn }}
-                    hitSlop={iconHitSlop}
-                    onPress={markIntroAtPlayhead}
-                    accessibilityLabel="Mark intro end at current time"
+                <View className="flex-row items-center mt-1 w-full">
+                  {isAndroidPhone ? (
+                    <View className="flex-row items-center gap-2.5 mr-2">
+                      <PlayerDisplayHudControls
+                        resizeMode={playerResizeMode}
+                        aspectMode={playerAspectMode}
+                        detectedAspectLabel={detectedAspectLabel}
+                        onResizeModeChange={setPlayerResizeMode}
+                        onAspectModeChange={setPlayerAspectMode}
+                        buttonSize={circleBtn}
+                        hitSlop={iconHitSlop}
+                      />
+                    </View>
+                  ) : null}
+
+                  <View
+                    className={`flex-1 flex-row items-center justify-center ${isAndroidPhone ? 'gap-2' : 'gap-3'}`}
                   >
-                    <Ionicons name="pencil" color="#fff" size={circleIcon} />
-                  </FocusSurface>
+                  {isTvEpisode ? (
+                    <FocusSurface
+                      className={`rounded-full items-center justify-center bg-accent active:opacity-90 ${!tvNeighbors.prev ? 'opacity-35' : ''}`}
+                      style={{ width: circleBtn, height: circleBtn }}
+                      hitSlop={iconHitSlop}
+                      onPress={() => tvNeighbors.prev && goToEpisodeRef(tvNeighbors.prev)}
+                      accessibilityLabel="Previous episode"
+                      disabled={!tvNeighbors.prev}
+                    >
+                      <Ionicons name="play-skip-back" color="#fff" size={circleIcon} />
+                    </FocusSurface>
+                  ) : null}
 
                   <FocusSurface
                     className="rounded-full items-center justify-center bg-accent active:opacity-90"
@@ -1216,6 +1331,19 @@ export function PlayerScreen() {
                     <Ionicons name="play-forward" color="#fff" size={circleIcon} />
                   </FocusSurface>
 
+                  {isTvEpisode ? (
+                    <FocusSurface
+                      className={`rounded-full items-center justify-center bg-accent active:opacity-90 ${!tvNeighbors.next ? 'opacity-35' : ''}`}
+                      style={{ width: circleBtn, height: circleBtn }}
+                      hitSlop={iconHitSlop}
+                      onPress={() => tvNeighbors.next && goToEpisodeRef(tvNeighbors.next)}
+                      accessibilityLabel="Next episode"
+                      disabled={!tvNeighbors.next}
+                    >
+                      <Ionicons name="play-skip-forward" color="#fff" size={circleIcon} />
+                    </FocusSurface>
+                  ) : null}
+
                   <FocusSurface
                     className="rounded-full items-center justify-center bg-accent active:opacity-90"
                     style={{ width: circleBtn, height: circleBtn }}
@@ -1225,11 +1353,26 @@ export function PlayerScreen() {
                   >
                     <Ionicons name="settings-outline" color="#fff" size={circleIcon} />
                   </FocusSurface>
+                  </View>
                 </View>
               </View>
             </>
           ) : null}
         </View>
+      ) : null}
+
+      {isTvEpisode ? (
+        <PlayerEpisodeSidebar
+          visible={episodeListOpen}
+          onClose={() => setEpisodeListOpen(false)}
+          seasonLabel={seasonQuery.data?.name ?? `Season ${params.season}`}
+          showTitle={params.showTitle ?? params.title.split(' · ')[0]?.trim()}
+          episodes={seasonEpisodes}
+          currentEpisode={params.episode}
+          resumeByEpisode={resumeByEpisode}
+          loading={seasonQuery.isLoading}
+          onSelectEpisode={playEpisodeAt}
+        />
       ) : null}
 
       <PlayerSettingsModal

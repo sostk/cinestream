@@ -82,8 +82,20 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
     [disabled, dragging, isTv, onScrubEnd, onScrubStart, seekFromX]
   );
 
+  const trackH = cinematic ? 3 : comfortableTouch ? 8 : 6;
+  const thumbSize = cinematic ? 12 : comfortableTouch ? 24 : 20;
+  const thumb = cinematic
+    ? { size: thumbSize, radius: 6, border: 0 }
+    : comfortableTouch
+      ? { size: thumbSize, radius: 12, border: 3 }
+      : { size: thumbSize, radius: 10, border: 3 };
+
   const thumbStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: withSpring(dragging.value ? 1.2 : 1, { damping: 14 }) }],
+    transform: [
+      { translateX: -thumbSize / 2 },
+      { translateY: -thumbSize / 2 },
+      { scale: withSpring(dragging.value ? 1.2 : 1, { damping: 14 }) },
+    ],
   }));
 
   const p = Math.max(0, Math.min(1, progress));
@@ -94,17 +106,10 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
     barWidth.current = e.nativeEvent.layout.width;
   };
 
-  const trackH = cinematic ? 3 : comfortableTouch ? 8 : 6;
-  const thumb = cinematic
-    ? { size: 12, radius: 6, offset: -6, border: 0 }
-    : comfortableTouch
-      ? { size: 24, radius: 12, offset: -12, border: 3 }
-      : { size: 20, radius: 10, offset: -10, border: 3 };
-
   const trackContent = (
-    <View className={`relative justify-center ${cinematic ? 'py-2' : comfortableTouch ? 'py-3' : 'py-2'}`}>
+    <View className="relative w-full" style={{ height: trackH }}>
       <View
-        className="rounded-full overflow-hidden"
+        className="rounded-full overflow-hidden w-full"
         style={{
           height: trackH,
           backgroundColor: cinematic ? 'rgba(229,9,20,0.28)' : undefined,
@@ -130,9 +135,7 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
           {
             position: 'absolute',
             left: `${p * 100}%`,
-            marginLeft: thumb.offset,
-            top: '50%',
-            marginTop: thumb.offset,
+            top: trackH / 2,
             width: thumb.size,
             height: thumb.size,
             borderRadius: thumb.radius,
