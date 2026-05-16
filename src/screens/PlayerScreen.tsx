@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   PanResponder,
   Platform,
@@ -36,9 +37,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import type { RootStackParamList, PlayerRouteParams } from '@/navigation/types';
 import {
+  buildPlaybackRequest,
   pickAutoSource,
   resolveProxyUrl,
-  videoSourceContentType,
+  videoSourceContentTypeForPlayback,
 } from '@/utils/stream';
 import { useSettingsStore } from '@/store/settingsStore';
 import {
@@ -54,15 +56,31 @@ import { tmdbImg } from '@/services/tmdbImages';
 import { playbackLogger } from '@/player/playbackLogger';
 import { usePlayerOrientation } from '@/player/usePlayerOrientation';
 import { usePlaybackSources } from '@/player/usePlaybackSources';
-import { sourceSignature, sniffDrmHint } from '@/player/streamUtils';
+import { createPlaybackFallbackController } from '@/player/playbackFallbackController';
+import type { PlaybackFallbackContext } from '@/player/playbackFallbackController';
+import {
+  isAndroidExoNetworkOrSourceError,
+  loggablePlaybackRequest,
+  sourceSignature,
+  sniffDrmHint,
+} from '@/player/streamUtils';
 import { loadPlayerSelection, savePlayerSelection } from '@/player/selectionsStorage';
 import { PlayerProgressBar } from '@/player/PlayerProgressBar';
 import { PlayerSettingsModal } from '@/player/PlayerSettingsModal';
+import { resolveStreamReadyState } from '@/player/streamAvailability';
 
 const RATES = [0.75, 1, 1.25, 1.5, 2] as const;
 
-/** Shimmer-style blocks while OMSS streams resolve — avoids blank black screen. */
-function PlayerFetchSkeleton({ wide }: { wide: boolean }) {
+/** Shimmer while OMSS resolves streams — with explicit status copy. */
+function PlayerFetchSkeleton({
+  wide,
+  title,
+  message,
+}: {
+  wide: boolean;
+  title: string;
+  message: string;
+}) {
   const p = useSharedValue(0);
   useEffect(() => {
     p.value = withRepeat(withTiming(1, { duration: 900 }), -1, true);
@@ -72,13 +90,14 @@ function PlayerFetchSkeleton({ wide }: { wide: boolean }) {
   }));
   return (
     <View className="flex-1 px-8 justify-center gap-5">
-      <Animated.View style={a} className={`rounded-[26px] bg-white/10 ${wide ? 'h-56' : 'h-44'} border border-white/10`} />
+      <View className="items-center gap-3 mb-2">
+        <ActivityIndicator color="#e50914" size="large" />
+        <Text className="text-white text-xl font-bold text-center">{title}</Text>
+        <Text className="text-white/55 text-[15px] leading-[22px] text-center max-w-[320px]">{message}</Text>
+      </View>
+      <Animated.View style={a} className={`rounded-[26px] bg-white/10 ${wide ? 'h-40' : 'h-32'} border border-white/10`} />
       <Animated.View style={a} className="h-3 rounded-full bg-white/10 w-[88%]" />
       <Animated.View style={a} className="h-3 rounded-full bg-white/10 w-[55%]" />
-      <View className="flex-row gap-3 mt-4">
-        <Animated.View style={a} className="h-12 flex-1 rounded-2xl bg-white/8" />
-        <Animated.View style={a} className="h-12 flex-1 rounded-2xl bg-white/8" />
-      </View>
     </View>
   );
 }
@@ -99,6 +118,8 @@ export function PlayerScreen() {
   const hudHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prefsToken = useRef(0);
   const saveSelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** User chose a stream in settings; when auto-quality is on we otherwise always start at best MP4. */
+  const manualSourcePickRef = useRef(false);
 
   const autoQuality = useSettingsStore((s) => s.autoQuality);
   const defaultRate = useSettingsStore((s) => s.defaultPlaybackRate);
@@ -106,55 +127,63 @@ export function PlayerScreen() {
   const autoplayNextEpisode = useSettingsStore((s) => s.autoplayNextEpisode);
   const setDefaultPlaybackRate = useSettingsStore((s) => s.setDefaultPlaybackRate);
 
-  /** ExoPlayer does not send browser-like Referer/UA; some OMSS proxies require them (web works without this). */
-  const nativeStreamHeaders = useMemo((): Record<string, string> | undefined => {
-    if (Platform.OS === 'web') return undefined;
-    const base = cineproBaseUrl.trim();
-    if (!base) return undefined;
-    const referer = base.endsWith('/') ? base : `${base}/`;
-    let origin = '';
-    try {
-      origin = new URL(base.includes('://') ? base : `http://${base}`).origin;
-    } catch {
-      return { Referer: referer };
-    }
-    return {
-      Referer: referer,
-      Origin: origin,
-      'User-Agent': Platform.select({
-        ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-        default:
-          'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      })!,
-    };
-  }, [cineproBaseUrl]);
-
+  const coreConfigured = !!cineproBaseUrl.trim();
   const { omss, sorted, sourceIndex, setSourceIndex, activeSource, sortedKey } = usePlaybackSources({
-    enabled: !!cineproBaseUrl.trim(),
+    enabled: coreConfigured,
     mediaType: params.mediaType,
     tmdbId: params.tmdbId,
     season: params.season,
     episode: params.episode,
   });
 
+  const streamState = useMemo(
+    () => resolveStreamReadyState(coreConfigured, omss),
+    [coreConfigured, omss.data, omss.error, omss.isError, omss.isFetching, omss.isPending]
+  );
+
+  const streamsLoading = streamState.status === 'loading';
+
   const [subtitleTrack, setSubtitleTrack] = useState(-1);
   const [rate, setRate] = useState(defaultRate);
   const [paused, setPaused] = useState(false);
-  const [buffering, setBuffering] = useState(true);
   const [position, setPosition] = useState(0);
   const [playableDuration, setPlayableDuration] = useState(0);
   const [duration, setDuration] = useState(0);
   const [hud, setHud] = useState(Platform.isTV);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [controlsLocked, setControlsLocked] = useState(false);
-  const [volume, setVolume] = useState(1);
-  const [streamFailed, setStreamFailed] = useState(false);
+  const playbackExhaustedRef = useRef(false);
+  const [playbackAttempt, setPlaybackAttempt] = useState(0);
+  /** After CDN direct fails, retry same OMSS source through Core proxy once. */
+  const [proxyRetrySig, setProxyRetrySig] = useState<string | null>(null);
+  const fallbackCtxRef = useRef<PlaybackFallbackContext>({
+    sourceIndex: 0,
+    sourceCount: 0,
+    uri: '',
+  });
+  const fallbackRetryRef = useRef<() => void>(() => undefined);
+  const fallbackSwitchRef = useRef<(reason: string) => void>(() => undefined);
+  const fallbackExhaustedRef = useRef<() => void>(() => undefined);
+  const fallbackCtlRef = useRef<ReturnType<typeof createPlaybackFallbackController> | null>(null);
+  if (fallbackCtlRef.current === null) {
+    fallbackCtlRef.current = createPlaybackFallbackController({
+      getContext: () => fallbackCtxRef.current,
+      onRetrySameSource: () => fallbackRetryRef.current(),
+      onSwitchSource: (reason) => fallbackSwitchRef.current(reason),
+      onExhausted: () => fallbackExhaustedRef.current(),
+    });
+  }
+  const fallbackCtl = fallbackCtlRef.current;
+  const [sourceSwitchNotice, setSourceSwitchNotice] = useState<{
+    title: string;
+    detail: string;
+  } | null>(null);
+  const sourceSwitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [nativeAudioTracks, setNativeAudioTracks] = useState<OnLoadData['audioTracks']>([]);
   const [nativeVideoTracks, setNativeVideoTracks] = useState<NonNullable<OnLoadData['videoTracks']>>([]);
   const [preferredAudioIdx, setPreferredAudioIdx] = useState(0);
   const [preferredVideoIdx, setPreferredVideoIdx] = useState(-1);
-  const [gestureHud, setGestureHud] = useState<{ kind: 'brightness' | 'volume'; value: number } | null>(null);
-  const volGestureStart = useRef(1);
+  const [gestureHud, setGestureHud] = useState<{ kind: 'brightness'; value: number } | null>(null);
   const brightnessGestureStart = useRef(1);
 
   const upsertContinue = useLibraryStore((s) => s.upsertContinue);
@@ -179,6 +208,10 @@ export function PlayerScreen() {
   }, [defaultRate]);
 
   useEffect(() => {
+    manualSourcePickRef.current = false;
+  }, [mediaKey]);
+
+  useEffect(() => {
     const t = ++prefsToken.current;
     if (!sorted.length) return;
     void loadPlayerSelection(mediaKey).then((p) => {
@@ -187,22 +220,26 @@ export function PlayerScreen() {
       if (p?.audioIdx != null && p.audioIdx >= 0) setPreferredAudioIdx(p.audioIdx);
       if (p?.videoTrackIdx != null && p.videoTrackIdx >= -1) setPreferredVideoIdx(p.videoTrackIdx);
 
-      if (p?.sourceSig) {
+      if (!autoQuality && p?.sourceSig) {
         const idx = sorted.findIndex((s) => sourceSignature(s) === p.sourceSig);
         if (idx >= 0) {
+          manualSourcePickRef.current = true;
           setSourceIndex(idx);
           return;
         }
       }
-      if (autoQuality) {
-        const pick = pickAutoSource(sorted);
-        const idx = pick ? sorted.indexOf(pick) : 0;
-        setSourceIndex(idx >= 0 ? idx : 0);
-      } else {
-        setSourceIndex(0);
-      }
+      const pick = pickAutoSource(sorted);
+      const idx = pick ? sorted.indexOf(pick) : 0;
+      setSourceIndex(idx >= 0 ? idx : 0);
     });
   }, [autoQuality, mediaKey, setSourceIndex, sorted, sortedKey]);
+
+  useEffect(() => {
+    if (!autoQuality || manualSourcePickRef.current || !sorted.length) return;
+    const pick = pickAutoSource(sorted);
+    const idx = pick ? sorted.indexOf(pick) : 0;
+    setSourceIndex(idx >= 0 ? idx : 0);
+  }, [autoQuality, setSourceIndex, sorted, sortedKey]);
 
   const backdropUri = useMemo(
     () => tmdbImg(params.backdropPath ?? params.posterPath, 'w500'),
@@ -219,7 +256,15 @@ export function PlayerScreen() {
     })) as TextTracks;
   }, [omss.data?.subtitles]);
 
-  const uri = activeSource ? resolveProxyUrl(activeSource.url) : '';
+  const playbackRequest = useMemo(() => {
+    if (!activeSource) return null;
+    const sig = sourceSignature(activeSource);
+    return buildPlaybackRequest(activeSource.url, {
+      forceProxy: proxyRetrySig === sig,
+    });
+  }, [activeSource, proxyRetrySig]);
+
+  const uri = playbackRequest?.uri ?? '';
 
   useEffect(() => {
     if (activeSource && sniffDrmHint(activeSource.url)) {
@@ -229,22 +274,48 @@ export function PlayerScreen() {
     }
   }, [activeSource]);
 
+  const clearSourceSwitchTimer = useCallback(() => {
+    if (sourceSwitchTimer.current) {
+      clearTimeout(sourceSwitchTimer.current);
+      sourceSwitchTimer.current = null;
+    }
+  }, []);
+
   useEffect(() => {
-    setStreamFailed(false);
-    setBuffering(true);
+    fallbackCtxRef.current = {
+      sourceIndex,
+      sourceCount: sorted.length,
+      uri,
+      sourceType: activeSource?.type,
+    };
+  }, [activeSource?.type, sourceIndex, sorted.length, uri]);
+
+  useEffect(() => {
+    playbackExhaustedRef.current = false;
+    setPlaybackAttempt(0);
+    setProxyRetrySig(null);
+    fallbackCtl.resetForUri();
     setNativeAudioTracks([]);
     setNativeVideoTracks([]);
     setPreferredAudioIdx(0);
     setPreferredVideoIdx(-1);
-  }, [uri]);
+  }, [activeSource ? sourceSignature(activeSource) : '', fallbackCtl]);
+
+  useEffect(() => () => {
+    clearSourceSwitchTimer();
+    fallbackCtl.dispose();
+  }, [clearSourceSwitchTimer, fallbackCtl]);
 
   const videoSource = useMemo(() => {
-    if (!uri || !activeSource) return undefined;
-    const contentType = videoSourceContentType(activeSource.type);
+    if (!playbackRequest || !activeSource) return undefined;
+    const contentType = videoSourceContentTypeForPlayback(
+      activeSource.type,
+      playbackRequest.uri
+    );
     return {
-      uri,
-      ...(nativeStreamHeaders ? { headers: nativeStreamHeaders } : {}),
+      uri: playbackRequest.uri,
       ...(contentType ? { type: contentType } : {}),
+      ...(playbackRequest.headers ? { headers: playbackRequest.headers } : {}),
       minLoadRetryCount: 2,
       bufferConfig: {
         minBufferMs: 20_000,
@@ -253,7 +324,13 @@ export function PlayerScreen() {
         bufferForPlaybackAfterRebufferMs: 4800,
       },
     };
-  }, [activeSource, nativeStreamHeaders, uri]);
+  }, [activeSource, playbackRequest]);
+
+  useEffect(() => {
+    if (activeSource && playbackRequest) {
+      playbackLogger.info('Playback request', loggablePlaybackRequest(activeSource, playbackRequest));
+    }
+  }, [activeSource, playbackRequest]);
 
   const selectedAudioTrack = useMemo(() => {
     if (!nativeAudioTracks.length) return { type: SelectedTrackType.SYSTEM } as const;
@@ -326,7 +403,9 @@ export function PlayerScreen() {
     if (saveSelTimer.current) clearTimeout(saveSelTimer.current);
     saveSelTimer.current = setTimeout(() => {
       void savePlayerSelection(mediaKey, {
-        sourceSig: sourceSignature(activeSource),
+        ...(!autoQuality || manualSourcePickRef.current
+          ? { sourceSig: sourceSignature(activeSource) }
+          : {}),
         subtitleIdx: subtitleTrack,
         audioIdx: preferredAudioIdx,
         videoTrackIdx: preferredVideoIdx,
@@ -335,7 +414,7 @@ export function PlayerScreen() {
     return () => {
       if (saveSelTimer.current) clearTimeout(saveSelTimer.current);
     };
-  }, [activeSource, mediaKey, preferredAudioIdx, preferredVideoIdx, subtitleTrack]);
+  }, [activeSource, autoQuality, mediaKey, preferredAudioIdx, preferredVideoIdx, subtitleTrack]);
 
   const clearHudTimer = useCallback(() => {
     if (hudHideTimer.current) {
@@ -399,21 +478,33 @@ export function PlayerScreen() {
         videoRef.current?.seek(Math.max(0, position - 10));
       } else if (e.code === 'ArrowRight') {
         videoRef.current?.seek(Math.min(duration || 0, position + 10));
-      } else if (e.code === 'KeyM') {
-        setVolume((v) => (v > 0.05 ? 0 : 1));
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [duration, position]);
 
-  const seekTo = useCallback((seconds: number) => {
-    const ref = videoRef.current;
-    if (!ref || !duration) return;
-    const next = Math.max(0, Math.min(duration, seconds));
-    ref.seek(next);
-    setPosition(next);
-  }, [duration]);
+  const onSeekStart = useCallback(() => {
+    fallbackCtl.onSeekStart();
+  }, [fallbackCtl]);
+
+  const onSeekEnd = useCallback(() => {
+    fallbackCtl.onSeekEnd();
+  }, [fallbackCtl]);
+
+  const seekTo = useCallback(
+    (seconds: number, opts?: { signalSeek?: boolean }) => {
+      const ref = videoRef.current;
+      if (!ref || !duration) return;
+      if (opts?.signalSeek !== false) {
+        onSeekStart();
+      }
+      const next = Math.max(0, Math.min(duration, seconds));
+      ref.seek(next);
+      setPosition(next);
+    },
+    [duration, onSeekStart]
+  );
 
   const seekBy = useCallback(
     (delta: number) => {
@@ -425,9 +516,13 @@ export function PlayerScreen() {
   const seekRatio = useCallback(
     (ratio: number) => {
       if (!duration) return;
-      seekTo(ratio * duration);
+      const ref = videoRef.current;
+      if (!ref) return;
+      const next = Math.max(0, Math.min(duration, ratio * duration));
+      ref.seek(next);
+      setPosition(next);
     },
-    [duration, seekTo]
+    [duration]
   );
 
   const togglePlayback = useCallback(() => {
@@ -439,32 +534,160 @@ export function PlayerScreen() {
   const bufferedProgress =
     duration > 0 ? Math.min(1, Math.max(0, playableDuration / duration)) : 0;
 
-  const chromeBottomPad = Math.max(insets.bottom, 16);
-  const chromeTopPad = Math.max(insets.top, 10);
+  /** Larger tap targets, thicker chrome, and thumb-friendly scrub strip on Android phones. */
+  const isAndroidPhone = Platform.OS === 'android' && !Platform.isTV;
+  const chromeBottomPad = Math.max(insets.bottom, isAndroidPhone ? 22 : 16);
+  const chromeTopPad = Math.max(insets.top, isAndroidPhone ? 14 : 10);
+  const gestureEdgeW = isAndroidPhone ? 92 : 76;
+  const dockPadX = isAndroidPhone ? 16 : 18;
+  const bottomScrimH = isAndroidPhone ? 380 : 340;
 
-  const pillBtn =
-    'rounded-2xl px-4 py-3.5 bg-white/12 border border-white/18 active:bg-white/22';
-  const iconRound =
-    'rounded-full w-11 h-11 items-center justify-center bg-black/40 border border-white/20 active:bg-white/15';
+  const iconHitSlop = isAndroidPhone
+    ? ({ top: 10, bottom: 10, left: 10, right: 10 } as const)
+    : ({ top: 6, bottom: 6, left: 6, right: 6 } as const);
+  const circleBtn = isAndroidPhone ? 50 : 46;
+  const circleBtnLg = isAndroidPhone ? 72 : 68;
+  const circleIcon = isAndroidPhone ? 22 : 20;
+  const circleIconLg = isAndroidPhone ? 34 : 32;
 
   const openSettings = () => {
     setSettingsOpen(true);
     clearHudTimer();
   };
 
-  const onPlaybackError = useCallback(
-    (e: OnVideoErrorData) => {
-      playbackLogger.error('Playback error', { error: e.error });
+  const markIntroAtPlayhead = useCallback(() => {
+    const introSec = Math.floor(position);
+    upsertContinue({
+      mediaKey,
+      mediaType: params.mediaType,
+      tmdbId: params.tmdbId,
+      title: params.title,
+      posterPath: params.posterPath,
+      backdropPath: params.backdropPath,
+      season: params.season,
+      episode: params.episode,
+      episodeTitle: params.episodeTitle,
+      positionSec: position,
+      durationSec: duration || Math.max(1, position),
+      updatedAt: Date.now(),
+      introSkipEndSec: introSec,
+    });
+    if (!Platform.isTV) scheduleHudHide();
+  }, [
+    duration,
+    mediaKey,
+    params.backdropPath,
+    params.episode,
+    params.episodeTitle,
+    params.mediaType,
+    params.posterPath,
+    params.season,
+    params.title,
+    params.tmdbId,
+    position,
+    scheduleHudHide,
+    upsertContinue,
+  ]);
+
+  const showNoSourcesLeftDialog = useCallback(() => {
+    if (playbackExhaustedRef.current) return;
+    playbackExhaustedRef.current = true;
+    setPaused(true);
+    setSourceSwitchNotice(null);
+    clearSourceSwitchTimer();
+
+    const sourceCount = sorted.length;
+    Alert.alert(
+      'Unable to play',
+      sourceCount > 0
+        ? `We tried ${sourceCount} stream${sourceCount === 1 ? '' : 's'} from your Core server, but none could be played on this device. Reload streams or go back and try again later.`
+        : 'No playable streams are available for this title right now. Check that CinePro Core is running, then reload or try again later.',
+      [
+        {
+          text: 'Reload streams',
+          onPress: () => {
+            playbackExhaustedRef.current = false;
+            setSourceIndex(0);
+            void omss.refetch();
+          },
+        },
+        {
+          text: 'Go back',
+          style: 'cancel',
+          onPress: () => navigation.goBack(),
+        },
+      ]
+    );
+  }, [clearSourceSwitchTimer, navigation, omss, setSourceIndex, sorted.length]);
+
+  const showSourceSwitchNotice = useCallback(
+    (nextSource: (typeof sorted)[number] | undefined, nextIndex: number) => {
+      const label = nextSource
+        ? `${nextSource.quality.toUpperCase()} · ${nextSource.provider.name}`
+        : `stream ${nextIndex + 1} of ${sorted.length}`;
+      setSourceSwitchNotice({
+        title: 'Switching sources…',
+        detail: `Trying ${label}`,
+      });
+      clearSourceSwitchTimer();
+      sourceSwitchTimer.current = setTimeout(() => setSourceSwitchNotice(null), 5000);
+    },
+    [clearSourceSwitchTimer, sorted.length]
+  );
+
+  const retryCurrentSource = useCallback(() => {
+    setPlaybackAttempt((n) => n + 1);
+  }, []);
+
+  const switchToNextSource = useCallback(
+    (reason: string) => {
       setSourceIndex((i) => {
-        if (i < sorted.length - 1) {
-          playbackLogger.info('Falling back to next stream source', { nextIndex: i + 1 });
-          return i + 1;
+        if (i >= sorted.length - 1) {
+          showNoSourcesLeftDialog();
+          return i;
         }
-        setTimeout(() => setStreamFailed(true), 0);
-        return i;
+        const nextIndex = i + 1;
+        playbackLogger.info('Switching to next source', {
+          reason,
+          fromIndex: i,
+          nextIndex,
+          uriTail: uri ? uri.slice(-72) : undefined,
+        });
+        showSourceSwitchNotice(sorted[nextIndex], nextIndex);
+        fallbackCtl.onSourceSwitched();
+        setProxyRetrySig(null);
+        setPlaybackAttempt(0);
+        return nextIndex;
       });
     },
-    [sorted.length, setSourceIndex]
+    [fallbackCtl, showNoSourcesLeftDialog, showSourceSwitchNotice, sorted, setSourceIndex, uri]
+  );
+
+  fallbackRetryRef.current = retryCurrentSource;
+  fallbackSwitchRef.current = switchToNextSource;
+  fallbackExhaustedRef.current = showNoSourcesLeftDialog;
+
+  const onPlaybackError = useCallback(
+    (e: OnVideoErrorData) => {
+      if (
+        activeSource &&
+        playbackRequest?.via === 'upstream' &&
+        isAndroidExoNetworkOrSourceError(e)
+      ) {
+        const sig = sourceSignature(activeSource);
+        if (proxyRetrySig !== sig) {
+          playbackLogger.info('CDN direct failed — retrying via Core proxy', {
+            sig,
+            quality: activeSource.quality,
+          });
+          setProxyRetrySig(sig);
+          setPlaybackAttempt((n) => n + 1);
+          return;
+        }
+      }
+      fallbackCtl.onPlaybackError(e);
+    },
+    [activeSource, fallbackCtl, playbackRequest?.via, proxyRetrySig]
   );
 
   const brightnessStripPan = useMemo(
@@ -506,25 +729,6 @@ export function PlayerScreen() {
     [controlsLocked, uri]
   );
 
-  const volumeStripPan = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => !controlsLocked && !Platform.isTV && !!uri,
-        onMoveShouldSetPanResponder: (_, g) => !controlsLocked && !Platform.isTV && Math.abs(g.dy) > 6,
-        onPanResponderGrant: () => {
-          volGestureStart.current = volume;
-        },
-        onPanResponderMove: (_, g) => {
-          const next = Math.max(0, Math.min(1, volGestureStart.current - g.dy / 480));
-          setVolume(next);
-          setGestureHud({ kind: 'volume', value: next });
-        },
-        onPanResponderRelease: () => setGestureHud(null),
-        onPanResponderTerminate: () => setGestureHud(null),
-      }),
-    [controlsLocked, uri, volume]
-  );
-
   const [miniMetaVisible, setMiniMetaVisible] = useState(true);
   useEffect(() => {
     if (hud || controlsLocked || !uri) {
@@ -544,21 +748,23 @@ export function PlayerScreen() {
         <View className="flex-1" collapsable={false}>
           <Video
             ref={videoRef}
-            key={activeSource ? sourceSignature(activeSource) : 'no-source'}
+            key={`${activeSource ? sourceSignature(activeSource) : 'no-source'}:${sourceIndex}:${playbackAttempt}`}
             source={videoSource}
             style={{ flex: 1 }}
             viewType={Platform.OS === 'android' ? ViewType.TEXTURE : undefined}
-            resizeMode="contain"
+            resizeMode="cover"
             paused={paused}
             rate={rate}
-            volume={volume}
+            volume={1}
             progressUpdateInterval={450}
             bufferingStrategy={BufferingStrategyType.DEFAULT}
             onLoad={(data: OnLoadData) => {
               setDuration(data.duration);
               setPlayableDuration(0);
-              setBuffering(false);
-              setStreamFailed(false);
+              playbackExhaustedRef.current = false;
+              fallbackCtl.onPlaying();
+              setSourceSwitchNotice(null);
+              clearSourceSwitchTimer();
               setNativeAudioTracks(data.audioTracks ?? []);
               setNativeVideoTracks(data.videoTracks ?? []);
               playbackLogger.info('Video loaded', {
@@ -581,10 +787,10 @@ export function PlayerScreen() {
               setPlayableDuration(ev.playableDuration ?? 0);
             }}
             onBuffer={(ev) => {
-              setBuffering(ev.isBuffering);
-              if (ev.isBuffering) {
-                playbackLogger.debug('Buffering', { position, playableDuration });
-              }
+              fallbackCtl.onBuffer(ev.isBuffering);
+            }}
+            onSeek={() => {
+              onSeekEnd();
             }}
             onError={onPlaybackError}
             textTracks={textTracks}
@@ -597,30 +803,21 @@ export function PlayerScreen() {
             selectedVideoTrack={selectedVideoTrack}
             preventsDisplaySleepDuringVideoPlayback
             renderLoader={() => (
-              <View className="absolute inset-0 items-center justify-center">
-                <View className="rounded-2xl overflow-hidden border border-white/12">
-                  <BlurView intensity={28} tint="dark" className="px-8 py-5">
-                    <ActivityIndicator color="#fff" />
-                    <Text className="text-white/80 text-xs font-semibold mt-3">Starting…</Text>
-                  </BlurView>
-                </View>
+              <View
+                pointerEvents="none"
+                className="absolute inset-0 items-center justify-center bg-black/25"
+              >
+                <ActivityIndicator color="#e50914" size="large" />
               </View>
             )}
           />
 
           {!Platform.isTV ? (
-            <>
-              <View
-                {...brightnessStripPan.panHandlers}
-                pointerEvents="box-only"
-                style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 76, zIndex: 3 }}
-              />
-              <View
-                {...volumeStripPan.panHandlers}
-                pointerEvents="box-only"
-                style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 76, zIndex: 3 }}
-              />
-            </>
+            <View
+              {...brightnessStripPan.panHandlers}
+              pointerEvents="box-only"
+              style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: gestureEdgeW, zIndex: 3 }}
+            />
           ) : null}
 
           {!Platform.isTV && miniMetaVisible ? (
@@ -631,19 +828,23 @@ export function PlayerScreen() {
               className="justify-start"
             >
               <LinearGradient
-                colors={['rgba(0,0,0,0.55)', 'transparent']}
-                style={{ paddingTop: chromeTopPad, paddingHorizontal: 18, paddingBottom: 24 }}
+                colors={['rgba(0,0,0,0.5)', 'transparent']}
+                style={{ paddingTop: chromeTopPad, paddingHorizontal: dockPadX, paddingBottom: 20 }}
               >
-                <View className="rounded-2xl bg-black/45 border border-white/12 px-4 py-3 max-w-[88%]">
-                  <Text className="text-white text-[15px] font-bold" numberOfLines={2}>
-                    {params.title}
+                <Text
+                  className={`text-white font-bold max-w-[88%] ${isAndroidPhone ? 'text-[16px] leading-[22px]' : 'text-[15px]'}`}
+                  numberOfLines={2}
+                >
+                  {params.title}
+                </Text>
+                {params.mediaType === 'tv' && params.episodeTitle ? (
+                  <Text
+                    className={`text-accent/90 mt-1 font-medium max-w-[88%] ${isAndroidPhone ? 'text-[13px]' : 'text-[12px]'}`}
+                    numberOfLines={1}
+                  >
+                    {params.episodeTitle}
                   </Text>
-                  {params.mediaType === 'tv' && params.episodeTitle ? (
-                    <Text className="text-white/55 text-[12px] mt-1 font-medium" numberOfLines={1}>
-                      Episode · {params.episodeTitle}
-                    </Text>
-                  ) : null}
-                </View>
+                ) : null}
               </LinearGradient>
             </Animated.View>
           ) : null}
@@ -667,17 +868,29 @@ export function PlayerScreen() {
               accessibilityLabel="Unlock controls"
             >
               <View
-                className="absolute bottom-10 self-center rounded-full bg-black/70 border border-white/25 px-5 py-3 flex-row items-center gap-2"
-                style={{ alignSelf: 'center', left: 0, right: 0, marginHorizontal: 'auto' }}
+                className={`absolute self-center rounded-full bg-black/75 border border-white/28 flex-row items-center gap-2.5 shadow-lg ${isAndroidPhone ? 'px-6 py-4' : 'px-5 py-3'}`}
+                style={{
+                  alignSelf: 'center',
+                  left: 0,
+                  right: 0,
+                  marginHorizontal: 'auto',
+                  bottom: Math.max(insets.bottom, isAndroidPhone ? 28 : 24),
+                }}
               >
-                <Ionicons name="lock-open-outline" color="#fff" size={20} />
-                <Text className="text-white font-bold text-sm">Tap to unlock</Text>
+                <Ionicons name="lock-open-outline" color="#fff" size={isAndroidPhone ? 22 : 20} />
+                <Text className={`text-white font-bold ${isAndroidPhone ? 'text-[15px]' : 'text-sm'}`}>
+                  Tap to unlock
+                </Text>
               </View>
             </Pressable>
           ) : null}
         </View>
-      ) : omss.isLoading ? (
-        <PlayerFetchSkeleton wide={isWideLayout} />
+      ) : streamsLoading ? (
+        <PlayerFetchSkeleton
+          wide={isWideLayout}
+          title={streamState.title}
+          message={streamState.message}
+        />
       ) : (
         <View className="flex-1 items-center justify-center px-10 gap-5">
           <LinearGradient
@@ -694,22 +907,42 @@ export function PlayerScreen() {
           />
           <View className="w-[88px] h-[88px] rounded-full bg-white/8 border border-white/15 items-center justify-center">
             <Ionicons
-              name={omss.isError ? 'alert-circle-outline' : 'film-outline'}
+              name={
+                streamState.status === 'no_core'
+                  ? 'settings-outline'
+                  : streamState.status === 'error'
+                    ? 'alert-circle-outline'
+                    : 'film-outline'
+              }
               color="rgba(255,255,255,0.85)"
               size={40}
             />
           </View>
           <View className="items-center gap-2">
             <Text className="text-white text-center text-xl font-bold tracking-tight">
-              {omss.isError ? 'Could not load sources' : 'Nothing to play'}
+              {streamState.status === 'no_core' ||
+              streamState.status === 'error' ||
+              streamState.status === 'empty'
+                ? streamState.title
+                : 'Nothing to play'}
             </Text>
             <Text className="text-white/55 text-center text-[15px] leading-[22px] max-w-[320px]">
-              {omss.isError
-                ? 'Check your Core connection or try again in a moment.'
+              {streamState.status === 'no_core' ||
+              streamState.status === 'error' ||
+              streamState.status === 'empty'
+                ? streamState.message
                 : 'There are no playable streams for this title right now.'}
             </Text>
           </View>
-          {!omss.isLoading ? (
+          {streamState.status === 'no_core' ? (
+            <Pressable
+              onPress={() => navigation.navigate('Settings')}
+              className="rounded-full bg-accent px-8 py-3.5 active:opacity-90 shadow-lg"
+              accessibilityLabel="Open settings"
+            >
+              <Text className="text-white font-bold text-[15px]">Open Settings</Text>
+            </Pressable>
+          ) : (
             <Pressable
               onPress={() => omss.refetch()}
               className="rounded-full bg-accent px-8 py-3.5 active:opacity-90 shadow-lg"
@@ -717,7 +950,7 @@ export function PlayerScreen() {
             >
               <Text className="text-white font-bold text-[15px]">Try again</Text>
             </Pressable>
-          ) : null}
+          )}
         </View>
       )}
 
@@ -727,76 +960,65 @@ export function PlayerScreen() {
           style={[StyleSheet.absoluteFillObject, { zIndex: 25 }]}
           className="items-center justify-center"
         >
-          <BlurView intensity={40} tint="dark" className="rounded-2xl overflow-hidden border border-white/18 px-7 py-4">
-            <Text className="text-white font-bold text-base">
-              {gestureHud.kind === 'brightness' ? 'Brightness' : 'Volume'}{' '}
+          <BlurView
+            intensity={44}
+            tint="dark"
+            className={`rounded-2xl overflow-hidden border border-white/18 ${isAndroidPhone ? 'px-8 py-5' : 'px-7 py-4'}`}
+          >
+            <Text className={`text-white font-bold ${isAndroidPhone ? 'text-lg' : 'text-base'}`}>
+              Brightness{' '}
               {Math.round(gestureHud.value * 100)}%
             </Text>
           </BlurView>
         </View>
       ) : null}
 
-      {streamFailed && uri ? (
-        <View style={[StyleSheet.absoluteFillObject, { zIndex: 24 }]} className="items-center justify-center px-8">
-          <BlurView intensity={50} tint="dark" className="rounded-3xl overflow-hidden border border-white/15 max-w-[360px] w-full">
-            <View className="bg-black/40 px-6 py-6 gap-4">
-              <Text className="text-white text-lg font-bold text-center">Stream interrupted</Text>
-              <Text className="text-white/55 text-sm text-center leading-5">
-                This source failed. Try another stream or reload the session.
-              </Text>
-              <View className="gap-2">
-                {sourceIndex < sorted.length - 1 ? (
-                  <Pressable
-                    onPress={() => {
-                      setStreamFailed(false);
-                      setSourceIndex((i) => i + 1);
-                    }}
-                    className="rounded-2xl bg-accent py-3.5 border border-white/15"
-                  >
-                    <Text className="text-white text-center font-bold">Next source</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable
-                  onPress={() => {
-                    setStreamFailed(false);
-                    void omss.refetch();
-                  }}
-                  className="rounded-2xl bg-white/12 py-3.5 border border-white/15"
+      {sourceSwitchNotice ? (
+        <View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFillObject, { zIndex: 26 }]}
+          className="items-center justify-center px-8"
+        >
+          <BlurView
+            intensity={48}
+            tint="dark"
+            className={`rounded-2xl overflow-hidden border border-accent/40 max-w-[340px] w-full ${isAndroidPhone ? 'px-7 py-5' : 'px-6 py-4'}`}
+          >
+            <View className="flex-row items-center gap-3">
+              <ActivityIndicator color="#e50914" size="small" />
+              <View className="flex-1 gap-1">
+                <Text
+                  className={`text-white font-bold ${isAndroidPhone ? 'text-[16px]' : 'text-[15px]'}`}
                 >
-                  <Text className="text-white text-center font-bold">Reload streams</Text>
-                </Pressable>
+                  {sourceSwitchNotice.title}
+                </Text>
+                <Text className="text-white/65 text-[13px] leading-[18px]">
+                  {sourceSwitchNotice.detail}
+                </Text>
               </View>
             </View>
           </BlurView>
         </View>
       ) : null}
 
-      {(buffering && uri) || (!Platform.isTV && hud && paused) || (hud && !controlsLocked) ? (
+      {(!Platform.isTV && hud && paused) || (hud && !controlsLocked) ? (
         <View pointerEvents="box-none" style={[StyleSheet.absoluteFillObject, { zIndex: 6 }]}>
-          {buffering && uri ? (
-            <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
-              <BlurView
-                intensity={22}
-                tint="dark"
-                className="rounded-3xl overflow-hidden border border-white/12 px-8 py-6"
-              >
-                <View className="flex-row items-center gap-4">
-                  <ActivityIndicator size="large" color="#fff" />
-                  <Text className="text-white/90 text-[15px] font-semibold">Buffering…</Text>
-                </View>
-              </BlurView>
-            </View>
-          ) : null}
-
           {!Platform.isTV && hud && paused ? (
             <Pressable
               className="absolute inset-0 items-center justify-center"
               onPress={() => setPaused(false)}
               accessibilityLabel="Play"
             >
-              <View className="w-[92px] h-[92px] rounded-full bg-black/60 border-2 border-white/35 items-center justify-center shadow-2xl">
-                <View className="absolute inset-2 rounded-full border border-white/10" pointerEvents="none" />
-                <Ionicons name="play" color="#fff" size={46} style={{ marginLeft: 6 }} />
+              <View
+                className="rounded-full bg-accent items-center justify-center shadow-2xl shadow-black/50"
+                style={{ width: circleBtnLg + 12, height: circleBtnLg + 12 }}
+              >
+                <Ionicons
+                  name="play"
+                  color="#fff"
+                  size={circleIconLg}
+                  style={{ marginLeft: isAndroidPhone ? 5 : 4 }}
+                />
               </View>
             </Pressable>
           ) : null}
@@ -805,239 +1027,205 @@ export function PlayerScreen() {
             <>
               <LinearGradient
                 pointerEvents="none"
-                colors={['rgba(0,0,0,0.82)', 'transparent']}
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  height: 160,
-                }}
-              />
-              <LinearGradient
-                pointerEvents="none"
-                colors={['transparent', 'rgba(0,0,0,0.72)', 'rgba(0,0,0,0.95)']}
-                locations={[0, 0.5, 1]}
+                colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.88)']}
+                locations={[0, 0.42, 1]}
                 style={{
                   position: 'absolute',
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  height: 340,
+                  height: bottomScrimH,
                 }}
               />
 
               <View
-                style={{ paddingTop: chromeTopPad, paddingHorizontal: 18 }}
-                className="absolute left-0 right-0 top-0 flex-row items-center gap-3"
+                pointerEvents="box-none"
+                style={{
+                  position: 'absolute',
+                  top: chromeTopPad,
+                  left: dockPadX,
+                  zIndex: 1,
+                }}
               >
                 <FocusSurface
-                  className={iconRound}
+                  className="rounded-full items-center justify-center bg-accent active:opacity-90"
+                  style={{ width: circleBtn, height: circleBtn }}
+                  hitSlop={iconHitSlop}
                   onPress={() => navigation.goBack()}
                   accessibilityLabel="Close player"
                 >
-                  <Ionicons name="chevron-down" color="#fff" size={26} />
-                </FocusSurface>
-                <View className="flex-1 rounded-2xl bg-black/40 border border-white/12 px-3 py-2.5">
-                  <Text className="text-white font-semibold text-[16px] leading-[22px]" numberOfLines={2}>
-                    {params.title}
-                  </Text>
-                  {activeSource ? (
-                    <Text className="text-white/50 text-[11px] mt-1 font-medium" numberOfLines={1}>
-                      {activeSource.quality.toUpperCase()} · {activeSource.type.toUpperCase()} ·{' '}
-                      {activeSource.provider.name}
-                    </Text>
-                  ) : null}
-                </View>
-                {!Platform.isTV ? (
-                  <FocusSurface
-                    className={iconRound}
-                    onPress={() => setControlsLocked(true)}
-                    accessibilityLabel="Lock controls"
-                  >
-                    <Ionicons name="lock-closed-outline" color="#fff" size={20} />
-                  </FocusSurface>
-                ) : null}
-                <FocusSurface className={iconRound} onPress={openSettings} accessibilityLabel="Playback settings">
-                  <Ionicons name="settings-outline" color="#fff" size={21} />
+                  <Ionicons name="chevron-down" color="#fff" size={isAndroidPhone ? 26 : 24} />
                 </FocusSurface>
               </View>
 
               <View
-                style={{ paddingBottom: chromeBottomPad, paddingHorizontal: 18 }}
-                className="absolute left-0 right-0 bottom-0 gap-3"
+                pointerEvents="box-none"
+                style={{
+                  paddingBottom: chromeBottomPad,
+                  paddingHorizontal: dockPadX,
+                }}
+                className={`absolute left-0 right-0 bottom-0 ${isAndroidPhone ? 'gap-3.5' : 'gap-3'}`}
               >
                 {introEnd != null && introEnd > 0 && position < introEnd ? (
                   <FocusSurface
-                    className="self-center flex-row items-center gap-2 rounded-full bg-accent pl-5 pr-6 py-3.5 shadow-lg border border-white/15"
+                    className={`self-center flex-row items-center gap-2 rounded-full bg-accent shadow-lg ${
+                      isAndroidPhone ? 'px-6 py-3.5' : 'px-5 py-3'
+                    }`}
                     onPress={() => seekTo(introEnd)}
                     accessibilityLabel="Skip intro"
                   >
-                    <Ionicons name="play-forward" color="#fff" size={18} />
-                    <Text className="text-white font-bold text-[13px] tracking-wide">Skip intro</Text>
+                    <Ionicons name="play-forward" color="#fff" size={isAndroidPhone ? 18 : 16} />
+                    <Text
+                      className={`text-white font-bold ${isAndroidPhone ? 'text-[14px]' : 'text-[13px]'}`}
+                    >
+                      Skip intro
+                    </Text>
                   </FocusSurface>
                 ) : null}
 
-                <View className="gap-2">
-                  <View className="flex-row justify-between items-baseline">
-                    <Text className="text-white text-sm font-semibold tabular-nums">{formatDuration(position)}</Text>
-                    <Text className="text-white/45 text-xs tabular-nums font-medium">
-                      −{formatDuration(Math.max(0, duration - position))}
-                    </Text>
+                {params.next && duration - position < 32 ? (
+                  <View className="rounded-2xl overflow-hidden border border-accent/35 bg-black/55 mb-1">
+                    <View className="flex-row gap-3 p-3">
+                      <View className="w-[72px] h-[48px] rounded-xl overflow-hidden bg-white/10">
+                        {nextPosterUri ? (
+                          <Image
+                            source={{ uri: nextPosterUri }}
+                            style={{ width: '100%', height: '100%' }}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View className="flex-1 bg-white/10" />
+                        )}
+                      </View>
+                      <View className="flex-1 gap-1">
+                        <Text className="text-accent text-[11px] font-bold uppercase tracking-wider">
+                          Up next
+                        </Text>
+                        <Text className="text-white font-semibold text-[14px]" numberOfLines={2}>
+                          {params.next.episodeTitle ?? `Episode ${params.next.episode}`}
+                        </Text>
+                        <Text className="text-white/50 text-[11px]">
+                          {autoplayNextEpisode
+                            ? `Autoplay in ${Math.max(0, Math.ceil(11 - (duration - position)))}s`
+                            : 'Autoplay off in Settings'}
+                        </Text>
+                      </View>
+                    </View>
+                    <View className="flex-row border-t border-white/10">
+                      <Pressable
+                        className="flex-1 py-3 border-r border-white/10"
+                        onPress={() => {
+                          const n = params.next!;
+                          navigation.replace('Player', {
+                            title: `${n.showTitle ?? ''} · ${n.episodeTitle ?? `Episode ${n.episode}`}`,
+                            mediaType: 'tv',
+                            tmdbId: n.tmdbId,
+                            season: n.season,
+                            episode: n.episode,
+                            episodeTitle: n.episodeTitle,
+                            posterPath: n.posterPath,
+                            backdropPath: n.backdropPath,
+                          });
+                        }}
+                      >
+                        <Text className="text-accent text-center font-bold text-[13px]">Play now</Text>
+                      </Pressable>
+                      <Pressable
+                        className="flex-1 py-3"
+                        onPress={() =>
+                          navigation.setParams({ next: undefined } as Partial<PlayerRouteParams>)
+                        }
+                      >
+                        <Text className="text-white/70 text-center font-semibold text-[13px]">Dismiss</Text>
+                      </Pressable>
+                    </View>
                   </View>
-                  <PlayerProgressBar
-                    progress={progress}
-                    bufferedProgress={bufferedProgress}
-                    disabled={controlsLocked}
-                    isTv={Platform.isTV}
-                    previewBackdropUri={backdropUri}
-                    duration={duration}
-                    onSeekRatio={seekRatio}
-                    formatDuration={formatDuration}
-                  />
+                ) : null}
+
+                <View className="flex-row justify-between items-center px-0.5">
+                  <Text
+                    className={`text-accent font-semibold tabular-nums ${isAndroidPhone ? 'text-[15px]' : 'text-sm'}`}
+                  >
+                    {formatDuration(position)}
+                  </Text>
+                  <Text
+                    className={`text-accent/75 tabular-nums font-medium ${isAndroidPhone ? 'text-[15px]' : 'text-sm'}`}
+                  >
+                    {formatDuration(duration)}
+                  </Text>
                 </View>
 
-                <BlurView
-                  intensity={56}
-                  tint="dark"
-                  className="rounded-[26px] overflow-hidden border border-white/14"
+                <PlayerProgressBar
+                  progress={progress}
+                  bufferedProgress={bufferedProgress}
+                  disabled={controlsLocked}
+                  isTv={Platform.isTV}
+                  cinematic
+                  duration={duration}
+                  onSeekRatio={seekRatio}
+                  onScrubStart={onSeekStart}
+                  onScrubEnd={onSeekEnd}
+                  formatDuration={formatDuration}
+                />
+
+                <View
+                  className={`flex-row items-center justify-center ${isAndroidPhone ? 'gap-5 mt-1' : 'gap-4'}`}
                 >
-                  <View className="px-3 pt-4 pb-4 gap-4 bg-black/28">
-                    <View className="flex-row items-center justify-between px-0.5 gap-1">
-                      <FocusSurface
-                        className="rounded-full min-w-[44px] h-11 px-2 items-center justify-center bg-white/10 border border-white/14"
-                        onPress={() => seekBy(-30)}
-                        accessibilityLabel="Back 30 seconds"
-                      >
-                        <Text className="text-white text-[11px] font-bold">−30s</Text>
-                      </FocusSurface>
-                      <FocusSurface
-                        className="rounded-full w-[54px] h-[54px] items-center justify-center bg-white/14 border border-white/18"
-                        onPress={() => seekBy(-10)}
-                        accessibilityLabel="Back 10 seconds"
-                      >
-                        <View className="items-center">
-                          <Ionicons name="play-back" color="#fff" size={24} />
-                          <Text className="text-white text-[10px] font-bold mt-px">10</Text>
-                        </View>
-                      </FocusSurface>
+                  <FocusSurface
+                    className="rounded-full items-center justify-center bg-accent active:opacity-90"
+                    style={{ width: circleBtn, height: circleBtn }}
+                    hitSlop={iconHitSlop}
+                    onPress={markIntroAtPlayhead}
+                    accessibilityLabel="Mark intro end at current time"
+                  >
+                    <Ionicons name="pencil" color="#fff" size={circleIcon} />
+                  </FocusSurface>
 
-                      <FocusSurface
-                        className="rounded-full w-[76px] h-[76px] items-center justify-center bg-white border-2 border-accent/40 shadow-xl shadow-black/40"
-                        onPress={togglePlayback}
-                        accessibilityLabel={paused ? 'Play' : 'Pause'}
-                      >
-                        <Ionicons
-                          name={paused ? 'play' : 'pause'}
-                          color="#0a0b10"
-                          size={38}
-                          style={paused ? { marginLeft: 5 } : undefined}
-                        />
-                      </FocusSurface>
+                  <FocusSurface
+                    className="rounded-full items-center justify-center bg-accent active:opacity-90"
+                    style={{ width: circleBtn, height: circleBtn }}
+                    hitSlop={iconHitSlop}
+                    onPress={() => seekBy(-10)}
+                    accessibilityLabel="Back 10 seconds"
+                  >
+                    <Ionicons name="play-back" color="#fff" size={circleIcon} />
+                  </FocusSurface>
 
-                      <FocusSurface
-                        className="rounded-full w-[54px] h-[54px] items-center justify-center bg-white/14 border border-white/18"
-                        onPress={() => seekBy(10)}
-                        accessibilityLabel="Forward 10 seconds"
-                      >
-                        <View className="items-center">
-                          <Ionicons name="play-forward" color="#fff" size={24} />
-                          <Text className="text-white text-[10px] font-bold mt-px">10</Text>
-                        </View>
-                      </FocusSurface>
+                  <FocusSurface
+                    className="rounded-full items-center justify-center bg-accent active:opacity-90 shadow-lg shadow-black/40"
+                    style={{ width: circleBtnLg, height: circleBtnLg }}
+                    hitSlop={iconHitSlop}
+                    onPress={togglePlayback}
+                    accessibilityLabel={paused ? 'Play' : 'Pause'}
+                  >
+                    <Ionicons
+                      name={paused ? 'play' : 'pause'}
+                      color="#fff"
+                      size={circleIconLg}
+                      style={paused ? { marginLeft: isAndroidPhone ? 4 : 3 } : undefined}
+                    />
+                  </FocusSurface>
 
-                      <FocusSurface
-                        className="rounded-full min-w-[44px] h-11 px-2 items-center justify-center bg-white/10 border border-white/14"
-                        onPress={() => seekBy(30)}
-                        accessibilityLabel="Forward 30 seconds"
-                      >
-                        <Text className="text-white text-[11px] font-bold">+30s</Text>
-                      </FocusSurface>
-                    </View>
+                  <FocusSurface
+                    className="rounded-full items-center justify-center bg-accent active:opacity-90"
+                    style={{ width: circleBtn, height: circleBtn }}
+                    hitSlop={iconHitSlop}
+                    onPress={() => seekBy(10)}
+                    accessibilityLabel="Forward 10 seconds"
+                  >
+                    <Ionicons name="play-forward" color="#fff" size={circleIcon} />
+                  </FocusSurface>
 
-                    <View className="flex-row flex-wrap justify-center gap-2.5 px-1">
-                      <FocusSurface
-                        className={`${pillBtn} flex-row items-center gap-2 max-w-[48%]`}
-                        onPress={openSettings}
-                        accessibilityLabel="Subtitles and audio"
-                      >
-                        <Ionicons name="text-outline" color="#fff" size={18} />
-                        <Text className="text-white text-[13px] font-semibold" numberOfLines={1}>
-                          {subtitleTrack < 0 ? 'Captions off' : 'Captions'}
-                        </Text>
-                      </FocusSurface>
-                      <FocusSurface
-                        className={`${pillBtn} flex-row items-center gap-2`}
-                        onPress={openSettings}
-                        accessibilityLabel="Quality and speed"
-                      >
-                        <Ionicons name="options-outline" color="#fff" size={18} />
-                        <Text className="text-white text-[13px] font-semibold">
-                          {rate}x · {activeSource?.quality ?? 'Auto'}
-                        </Text>
-                      </FocusSurface>
-                    </View>
-
-                    {params.next && duration - position < 32 ? (
-                      <View className="rounded-2xl overflow-hidden border border-white/12 bg-white/8">
-                        <View className="flex-row gap-3 p-3">
-                          <View className="w-[72px] h-[48px] rounded-xl overflow-hidden bg-white/10">
-                            {nextPosterUri ? (
-                              <Image
-                                source={{ uri: nextPosterUri }}
-                                style={{ width: '100%', height: '100%' }}
-                                contentFit="cover"
-                              />
-                            ) : (
-                              <View className="flex-1 bg-white/10" />
-                            )}
-                          </View>
-                          <View className="flex-1 gap-1">
-                            <Text className="text-white/70 text-[11px] font-bold uppercase tracking-wider">
-                              Up next
-                            </Text>
-                            <Text className="text-white font-semibold text-[14px]" numberOfLines={2}>
-                              {params.next.episodeTitle ?? `Episode ${params.next.episode}`}
-                            </Text>
-                            <Text className="text-white/45 text-[11px]">
-                              {autoplayNextEpisode
-                                ? `Autoplay in ${Math.max(0, Math.ceil(11 - (duration - position)))}s`
-                                : 'Autoplay off in Settings'}
-                            </Text>
-                          </View>
-                        </View>
-                        <View className="flex-row border-t border-white/10">
-                          <Pressable
-                            className="flex-1 py-3 border-r border-white/10"
-                            onPress={() => {
-                              const n = params.next!;
-                              navigation.replace('Player', {
-                                title: `${n.showTitle ?? ''} · ${n.episodeTitle ?? `Episode ${n.episode}`}`,
-                                mediaType: 'tv',
-                                tmdbId: n.tmdbId,
-                                season: n.season,
-                                episode: n.episode,
-                                episodeTitle: n.episodeTitle,
-                                posterPath: n.posterPath,
-                                backdropPath: n.backdropPath,
-                              });
-                            }}
-                          >
-                            <Text className="text-accent text-center font-bold text-[13px]">Play now</Text>
-                          </Pressable>
-                          <Pressable
-                            className="flex-1 py-3"
-                            onPress={() =>
-                              navigation.setParams({ next: undefined } as Partial<PlayerRouteParams>)
-                            }
-                          >
-                            <Text className="text-white/70 text-center font-semibold text-[13px]">Dismiss</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-                    ) : null}
-                  </View>
-                </BlurView>
+                  <FocusSurface
+                    className="rounded-full items-center justify-center bg-accent active:opacity-90"
+                    style={{ width: circleBtn, height: circleBtn }}
+                    hitSlop={iconHitSlop}
+                    onPress={openSettings}
+                    accessibilityLabel="Playback settings"
+                  >
+                    <Ionicons name="settings-outline" color="#fff" size={circleIcon} />
+                  </FocusSurface>
+                </View>
               </View>
             </>
           ) : null}
@@ -1058,7 +1246,10 @@ export function PlayerScreen() {
         onSubtitleChange={setSubtitleTrack}
         sortedSources={sorted}
         sourceIndex={sourceIndex}
-        onSourceChange={setSourceIndex}
+        onSourceChange={(idx) => {
+          manualSourcePickRef.current = true;
+          setSourceIndex(idx);
+        }}
         audioTracks={nativeAudioTracks}
         preferredAudioIdx={preferredAudioIdx}
         onAudioIdxChange={setPreferredAudioIdx}

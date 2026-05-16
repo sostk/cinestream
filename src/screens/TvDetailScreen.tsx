@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, LayoutAnimation, Platform, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,12 @@ import type { MediaCardModel } from '@/components/MediaCard';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { tvEpisodeSourcesQueryOptions } from '@/player/playbackSourceQuery';
+import {
+  resolveStreamReadyState,
+  streamAvailabilityDetailLine,
+} from '@/player/streamAvailability';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import { tmdbImg } from '@/services/tmdbImages';
@@ -30,6 +36,8 @@ export function TvDetailScreen() {
   const insets = useSafeAreaInsets();
   const [overviewExpanded, setOverviewExpanded] = useState(false);
   const hasTmdb = useHasConfiguredTmdbKey();
+  const cineproBaseUrl = useSettingsStore((s) => s.cineproBaseUrl);
+  const coreConfigured = !!cineproBaseUrl.trim();
 
   const detail = useQuery({
     queryKey: qk.tvDetail(id),
@@ -45,6 +53,7 @@ export function TvDetailScreen() {
 
   const toggleWatchlist = useLibraryStore((s) => s.toggleWatchlist);
   const toggleFavorite = useLibraryStore((s) => s.toggleFavorite);
+  const continueWatching = useLibraryStore((s) => s.continueWatching);
 
   const inWatchlist = useLibraryStore((s) =>
     s.watchlist.some((w) => w.mediaType === 'tv' && w.tmdbId === id)
@@ -64,6 +73,40 @@ export function TvDetailScreen() {
     const byOne = playableSeasons.find((s) => s.season_number === 1);
     return byOne ?? playableSeasons[0];
   }, [playableSeasons]);
+
+  const continueEpisode = useMemo(() => {
+    const rows = continueWatching
+      .filter((c) => c.mediaType === 'tv' && c.tmdbId === id)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    return rows[0];
+  }, [continueWatching, id]);
+
+  const prefetchTargets = useMemo(() => {
+    const targets: { season: number; episode: number }[] = [];
+    if (defaultSeason) targets.push({ season: defaultSeason.season_number, episode: 1 });
+    if (
+      continueEpisode?.season != null &&
+      continueEpisode.episode != null &&
+      !targets.some(
+        (t) => t.season === continueEpisode.season && t.episode === continueEpisode.episode
+      )
+    ) {
+      targets.push({ season: continueEpisode.season, episode: continueEpisode.episode });
+    }
+    return targets;
+  }, [continueEpisode, defaultSeason]);
+
+  const prefetchQueries = useQueries({
+    queries: prefetchTargets.map(({ season, episode }) =>
+      tvEpisodeSourcesQueryOptions(id, season, episode, coreConfigured)
+    ),
+  });
+
+  const primaryPrefetch = prefetchQueries[0];
+  const streamState = useMemo(
+    () => resolveStreamReadyState(coreConfigured, primaryPrefetch ?? { isPending: false, isFetching: false, isError: false, error: null, data: undefined }),
+    [coreConfigured, primaryPrefetch]
+  );
 
   const runtimes = detail.data?.episode_run_time?.filter((n) => n > 0) ?? [];
   const avgRuntime =
@@ -251,11 +294,19 @@ export function TvDetailScreen() {
                 <View className="mt-6 gap-3">
                   {defaultSeason ? (
                     <FocusSurface
-                      className="rounded-2xl bg-accent py-4 flex-row items-center justify-center gap-2 shadow-lg"
+                      className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 shadow-lg ${
+                        streamState.status === 'ready' || streamState.status === 'loading'
+                          ? 'bg-accent'
+                          : 'bg-white/14 border border-white/16'
+                      }`}
                       onPress={openDefaultSeason}
                       accessibilityLabel="Browse episodes"
                     >
-                      <Ionicons name="list-circle-outline" color="#fff" size={24} />
+                      {streamState.status === 'loading' ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Ionicons name="list-circle-outline" color="#fff" size={24} />
+                      )}
                       <Text className="text-white font-bold text-base">
                         Episodes · {defaultSeason.name}
                       </Text>
@@ -309,6 +360,39 @@ export function TvDetailScreen() {
                     </FocusSurface>
                   </View>
                 </View>
+
+                {defaultSeason ? (
+                  <View className="mt-5 rounded-2xl bg-white/[0.06] border border-white/10 p-4">
+                    <View className="flex-row items-center gap-2 mb-2">
+                      <Ionicons
+                        name={
+                          streamState.status === 'ready'
+                            ? 'cloud-done-outline'
+                            : streamState.status === 'loading'
+                              ? 'cloud-download-outline'
+                              : 'cloud-offline-outline'
+                        }
+                        color="rgba(255,255,255,0.75)"
+                        size={20}
+                      />
+                      <Text className="text-white font-semibold text-[15px]">Streaming availability</Text>
+                    </View>
+                    <Text className="text-white/65 text-sm leading-5">
+                      {streamState.status === 'ready'
+                        ? `Prefetching S${defaultSeason.season_number} · ${streamAvailabilityDetailLine(
+                            streamState,
+                            primaryPrefetch?.data?.expiresAt
+                          )}`
+                        : streamAvailabilityDetailLine(streamState)}
+                    </Text>
+                    {continueEpisode?.season != null && continueEpisode.episode != null ? (
+                      <Text className="text-white/45 text-xs mt-2">
+                        Also prefetching S{continueEpisode.season}:E{continueEpisode.episode} from Continue
+                        watching
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
 
                 <Text className="text-white/55 text-xs uppercase tracking-widest mt-8 mb-3">Seasons</Text>
                 {playableSeasons.length === 0 ? (

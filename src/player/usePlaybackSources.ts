@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CineProApi } from '@/api/cineproClient';
-import { qk } from '@/api/queryKeys';
-import type { OmssSourceResponse } from '@/api/types/omss';
 import { OmssHttpError } from '@/api/types/omss';
 import {
-  sortSourcesByQualityDesc,
-  isPlayableType,
-} from '@/utils/stream';
+  movieSourcesQueryOptions,
+  tvEpisodeSourcesQueryOptions,
+} from '@/player/playbackSourceQuery';
+import { normalizeOmssSources, sortSourcesForPlayback } from '@/utils/stream';
 import { playbackLogger } from '@/player/playbackLogger';
 import { loggableSourceSummary, parseExpiresAtMs, sourceSignature, summarizeOmssResponse } from '@/player/streamUtils';
 
@@ -23,28 +22,12 @@ export function usePlaybackSources(params: Args) {
   const { enabled, mediaType, tmdbId, season, episode } = params;
   const queryClient = useQueryClient();
 
-  const queryKey =
+  const queryOptions =
     mediaType === 'movie'
-      ? qk.movieSources(tmdbId)
-      : qk.tvSources(tmdbId, season ?? 1, episode ?? 1);
+      ? movieSourcesQueryOptions(tmdbId, enabled)
+      : tvEpisodeSourcesQueryOptions(tmdbId, season ?? 1, episode ?? 1, enabled);
 
-  const omss = useQuery<OmssSourceResponse, Error>({
-    queryKey,
-    queryFn: () =>
-      mediaType === 'movie'
-        ? CineProApi.movieSources(tmdbId)
-        : CineProApi.tvEpisodeSources({
-            tmdbShowId: tmdbId,
-            season: season ?? 1,
-            episode: episode ?? 1,
-          }),
-    enabled,
-    retry: (c, err) => {
-      const status = err instanceof OmssHttpError ? err.status : undefined;
-      if (status === 404) return false;
-      return c < 2;
-    },
-  });
+  const omss = useQuery(queryOptions);
 
   useEffect(() => {
     if (!omss.data) return;
@@ -52,9 +35,21 @@ export function usePlaybackSources(params: Args) {
     for (const d of omss.data.diagnostics ?? []) {
       playbackLogger.info(`OMSS diagnostic [${d.severity}] ${d.code}`, { message: d.message, field: d.field });
     }
-    const playable = omss.data.sources.filter((s) => isPlayableType(s.type));
-    if (playable[0]) {
-      playbackLogger.debug('Top priority source after sort would be used when auto', loggableSourceSummary(playable[0]));
+    const normalized = normalizeOmssSources(omss.data.sources);
+    if (omss.data.sources.length !== normalized.length) {
+      const skipped = omss.data.sources
+        .filter((s) => !normalized.some((n) => n.url === s.url))
+        .map((s) => s.type)
+        .slice(0, 8);
+      playbackLogger.warn('Some OMSS sources skipped (unknown type or missing URL)', {
+        total: omss.data.sources.length,
+        playable: normalized.length,
+        sampleTypes: skipped,
+      });
+    }
+    const top = sortSourcesForPlayback(normalized)[0];
+    if (top) {
+      playbackLogger.debug('Top priority source (MP4 / highest quality first)', loggableSourceSummary(top));
     }
   }, [omss.data]);
 
@@ -68,8 +63,7 @@ export function usePlaybackSources(params: Args) {
   }, [omss.error]);
 
   const sorted = useMemo(() => {
-    const list = omss.data?.sources ?? [];
-    return sortSourcesByQualityDesc(list.filter((s) => isPlayableType(s.type)));
+    return sortSourcesForPlayback(normalizeOmssSources(omss.data?.sources ?? []));
   }, [omss.data?.sources]);
 
   const sortedKey = useMemo(() => sorted.map((s) => sourceSignature(s)).join('|'), [sorted]);
@@ -92,7 +86,7 @@ export function usePlaybackSources(params: Args) {
         try {
           await CineProApi.refresh(id);
           playbackLogger.info('OMSS session refreshed before expiry', { responseId: id });
-          await queryClient.invalidateQueries({ queryKey });
+          await queryClient.invalidateQueries({ queryKey: queryOptions.queryKey });
         } catch (e) {
           playbackLogger.warn('OMSS refresh failed; sources may expire', e);
         }
@@ -102,16 +96,21 @@ export function usePlaybackSources(params: Args) {
     return () => {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [omss.data?.responseId, omss.data?.expiresAt, queryClient, queryKey]);
+  }, [omss.data?.responseId, omss.data?.expiresAt, queryClient, queryOptions.queryKey]);
 
   const [sourceIndex, setSourceIndex] = useState(0);
+  const prevSortedKeyRef = useRef('');
 
   useEffect(() => {
     if (!sorted.length) {
       setSourceIndex(0);
+      prevSortedKeyRef.current = sortedKey;
       return;
     }
-    setSourceIndex((i) => Math.min(Math.max(0, i), sorted.length - 1));
+    if (sortedKey !== prevSortedKeyRef.current) {
+      prevSortedKeyRef.current = sortedKey;
+      setSourceIndex(0);
+    }
   }, [sortedKey, sorted.length]);
 
   const activeSource = sorted[sourceIndex];

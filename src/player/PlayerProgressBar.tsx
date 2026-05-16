@@ -1,29 +1,41 @@
 import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
-import { LayoutChangeEvent, PanResponder, Pressable, Text, View } from 'react-native';
+import { LayoutChangeEvent, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+
+const ACCENT = '#e50914';
 
 type Props = {
   progress: number;
   bufferedProgress: number;
   disabled?: boolean;
   isTv?: boolean;
+  /** Thicker track + thumb — phone-friendly scrubbing outside cinematic mode. */
+  comfortableTouch?: boolean;
+  /** Thin full-width bar with red accent — cinematic player chrome. */
+  cinematic?: boolean;
   previewBackdropUri?: string;
   duration: number;
   onSeekRatio: (ratio: number) => void;
   formatDuration: (sec: number) => string;
+  onScrubStart?: () => void;
+  onScrubEnd?: () => void;
 };
 
-/** OTT-style seek bar with buffered lane, scrub thumb, and time + artwork preview while dragging. */
+/** Seek bar with buffered lane, scrub thumb, and optional preview while dragging. */
 export const PlayerProgressBar = memo(function PlayerProgressBar({
   progress,
   bufferedProgress,
   disabled,
   isTv,
+  comfortableTouch = Platform.OS === 'android' && !Platform.isTV,
+  cinematic = false,
   previewBackdropUri,
   duration,
   onSeekRatio,
   formatDuration,
+  onScrubStart,
+  onScrubEnd,
 }: Props) {
   const barWidth = useRef(1);
   const dragging = useSharedValue(0);
@@ -46,6 +58,7 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
           !disabled && !isTv && (Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3),
         onPanResponderGrant: (e) => {
           dragging.value = 1;
+          onScrubStart?.();
           const r = Math.max(0, Math.min(1, e.nativeEvent.locationX / barWidth.current));
           setScrubRatio(r);
           seekFromX(e.nativeEvent.locationX);
@@ -58,17 +71,19 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
         onPanResponderRelease: () => {
           dragging.value = 0;
           setScrubRatio(null);
+          onScrubEnd?.();
         },
         onPanResponderTerminate: () => {
           dragging.value = 0;
           setScrubRatio(null);
+          onScrubEnd?.();
         },
       }),
-    [disabled, dragging, isTv, seekFromX]
+    [disabled, dragging, isTv, onScrubEnd, onScrubStart, seekFromX]
   );
 
   const thumbStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: withSpring(dragging.value ? 1.12 : 1, { damping: 14 }) }],
+    transform: [{ scale: withSpring(dragging.value ? 1.2 : 1, { damping: 14 }) }],
   }));
 
   const p = Math.max(0, Math.min(1, progress));
@@ -79,11 +94,34 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
     barWidth.current = e.nativeEvent.layout.width;
   };
 
+  const trackH = cinematic ? 3 : comfortableTouch ? 8 : 6;
+  const thumb = cinematic
+    ? { size: 12, radius: 6, offset: -6, border: 0 }
+    : comfortableTouch
+      ? { size: 24, radius: 12, offset: -12, border: 3 }
+      : { size: 20, radius: 10, offset: -10, border: 3 };
+
   const trackContent = (
-    <View className="relative justify-center py-2">
-      <View className="h-[6px] rounded-full bg-white/12 overflow-hidden">
-        <View className="absolute left-0 top-0 bottom-0 bg-white/22 rounded-full" style={{ width: `${b * 100}%` }} />
-        <View className="absolute left-0 top-0 bottom-0 rounded-full bg-accent" style={{ width: `${p * 100}%` }} />
+    <View className={`relative justify-center ${cinematic ? 'py-2' : comfortableTouch ? 'py-3' : 'py-2'}`}>
+      <View
+        className="rounded-full overflow-hidden"
+        style={{
+          height: trackH,
+          backgroundColor: cinematic ? 'rgba(229,9,20,0.28)' : undefined,
+        }}
+      >
+        {!cinematic ? <View className="absolute inset-0 rounded-full bg-white/12" /> : null}
+        <View
+          className={`absolute left-0 top-0 bottom-0 rounded-full ${cinematic ? '' : 'bg-white/22'}`}
+          style={{
+            width: `${b * 100}%`,
+            backgroundColor: cinematic ? 'rgba(229,9,20,0.45)' : undefined,
+          }}
+        />
+        <View
+          className={`absolute left-0 top-0 bottom-0 rounded-full ${cinematic ? 'bg-accent' : 'bg-accent'}`}
+          style={{ width: `${p * 100}%` }}
+        />
       </View>
       <Animated.View
         pointerEvents="none"
@@ -92,29 +130,31 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
           {
             position: 'absolute',
             left: `${p * 100}%`,
-            marginLeft: -10,
+            marginLeft: thumb.offset,
             top: '50%',
-            marginTop: -10,
-            width: 20,
-            height: 20,
-            borderRadius: 10,
-            backgroundColor: '#fff',
-            borderWidth: 3,
-            borderColor: '#e50914',
+            marginTop: thumb.offset,
+            width: thumb.size,
+            height: thumb.size,
+            borderRadius: thumb.radius,
+            backgroundColor: ACCENT,
+            borderWidth: thumb.border,
+            borderColor: '#fff',
             shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.35,
-            shadowRadius: 4,
-            elevation: 6,
+            shadowOffset: { width: 0, height: cinematic ? 1 : comfortableTouch ? 3 : 2 },
+            shadowOpacity: cinematic ? 0.35 : comfortableTouch ? 0.4 : 0.35,
+            shadowRadius: cinematic ? 3 : comfortableTouch ? 6 : 4,
+            elevation: cinematic ? 4 : comfortableTouch ? 8 : 6,
           },
         ]}
       />
     </View>
   );
 
+  const touchH = cinematic ? 36 : comfortableTouch ? 56 : 44;
+
   return (
-    <View className="gap-2">
-      {scrubRatio != null && !disabled ? (
+    <View className={cinematic ? '' : 'gap-2'}>
+      {scrubRatio != null && !disabled && !cinematic ? (
         <Animated.View entering={FadeIn.duration(140)} exiting={FadeOut.duration(160)} className="items-center">
           <View className="rounded-2xl overflow-hidden border border-white/20 bg-black/50 h-[72px] w-[124px]">
             {previewBackdropUri ? (
@@ -135,14 +175,14 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
         <Pressable
           accessibilityRole="adjustable"
           accessibilityLabel="Seek along timeline"
-          className="h-11 justify-center"
+          style={{ height: touchH, justifyContent: 'center' }}
           onLayout={onBarLayout}
           onPress={(e) => seekFromX(e.nativeEvent.locationX)}
         >
           <View pointerEvents="none">{trackContent}</View>
         </Pressable>
       ) : (
-        <View className="h-11 justify-center" onLayout={onBarLayout} {...pan.panHandlers}>
+        <View style={{ height: touchH, justifyContent: 'center' }} onLayout={onBarLayout} {...pan.panHandlers}>
           {trackContent}
         </View>
       )}

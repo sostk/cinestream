@@ -4,7 +4,7 @@
     "slug": "cinestream",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/logo/favicon.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
@@ -25,16 +25,29 @@
       "package": "com.cinestream.app",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo/favicon.png",
-        "backgroundColor": "#07080d"
+        "foregroundImage": "./assets/adaptive-icon/foreground.png",
+        "backgroundImage": "./assets/adaptive-icon/background.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/logo/favicon.png",
+      "favicon": "./assets/icon.png",
       "bundler": "metro"
     },
-    "plugins": ["react-native-video", "./plugins/withAndroidCleartextTraffic.js"]
+    "plugins": [
+      [
+        "react-native-video",
+        {
+          "androidExtensions": {
+            "useExoplayerHls": true,
+            "useExoplayerDash": true,
+            "useExoplayerSmoothStreaming": true,
+            "useExoplayerRtsp": true
+          }
+        }
+      ],
+      "./plugins/withAndroidCleartextTraffic.js"
+    ]
   }
 }

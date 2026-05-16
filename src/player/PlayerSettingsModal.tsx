@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { OnLoadData, TextTracks } from 'react-native-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -91,13 +91,20 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
 
   const pill = 'rounded-2xl px-4 py-3.5 bg-white/12 border border-white/18 active:bg-white/22';
 
+  const isAndroidPhone = Platform.OS === 'android' && !Platform.isTV;
+  /** Comfortable list rows on small Android screens (Material ~48dp+). */
+  const tapRow = isAndroidPhone ? 'px-4 py-4 min-h-[56px]' : 'px-4 py-3.5';
+  const sheetRadius = isAndroidPhone ? 'rounded-[30px]' : 'rounded-[28px]';
+  const scrollPad = isAndroidPhone ? 'px-5 py-5' : 'px-5 py-4';
+  const rateChipPad = isAndroidPhone ? 'px-5 py-4 min-h-[52px]' : 'px-5 py-3.5';
+
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View className="flex-1 justify-end">
         <Pressable className="absolute inset-0 bg-black/75" onPress={onClose} />
         <View
-          className="mx-3 rounded-[28px] overflow-hidden border border-white/16 bg-[#0b0c12] max-h-[82%] shadow-2xl"
-          style={{ marginBottom: Math.max(insets.bottom, 12) }}
+          className={`mx-3 overflow-hidden border border-white/16 bg-[#0b0c12] max-h-[82%] shadow-2xl ${sheetRadius}`}
+          style={{ marginBottom: Math.max(insets.bottom, isAndroidPhone ? 16 : 12) }}
         >
           <View className="items-center pt-3 pb-2">
             <View className="w-12 h-1 rounded-full bg-white/35" />
@@ -114,14 +121,15 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
             </View>
             <Pressable
               onPress={onClose}
-              className="rounded-full bg-white/14 p-2.5 border border-white/12 active:bg-white/22"
+              className={`rounded-full bg-white/14 border border-white/12 active:bg-white/22 ${isAndroidPhone ? 'p-3' : 'p-2.5'}`}
               accessibilityLabel="Close settings"
+              hitSlop={isAndroidPhone ? { top: 8, bottom: 8, left: 8, right: 8 } : undefined}
             >
-              <Ionicons name="close" color="#fff" size={22} />
+              <Ionicons name="close" color="#fff" size={isAndroidPhone ? 24 : 22} />
             </Pressable>
           </View>
 
-          <ScrollView className="px-5 py-4" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView className={scrollPad} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <View className="flex-row items-center gap-2 mb-3">
               <Ionicons name="speedometer-outline" color="rgba(255,255,255,0.45)" size={17} />
               <Text className="text-white/45 text-[11px] uppercase tracking-widest font-bold">Speed</Text>
@@ -131,7 +139,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
                 <Pressable
                   key={r}
                   onPress={() => onRateChange(r)}
-                  className={`rounded-2xl px-5 py-3.5 border min-w-[72px] items-center ${
+                  className={`rounded-2xl border min-w-[72px] items-center justify-center ${rateChipPad} ${
                     rate === r ? 'bg-accent border-accent' : 'bg-white/8 border-white/12 active:bg-white/14'
                   }`}
                 >
@@ -142,7 +150,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
 
             <Pressable
               onPress={() => setVideoExpanded((v) => !v)}
-              className={`rounded-2xl px-4 py-3.5 border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${videoExpanded ? 'mb-2' : 'mb-4'}`}
+              className={`rounded-2xl ${tapRow} border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${videoExpanded ? 'mb-2' : 'mb-4'}`}
               accessibilityRole="button"
               accessibilityState={{ expanded: videoExpanded }}
             >
@@ -161,7 +169,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
               <View className="mb-6">
                 <Pressable
                   onPress={() => onVideoIdxChange(-1)}
-                  className={`rounded-2xl px-4 py-3.5 mb-2 border flex-row items-center justify-between ${
+                  className={`rounded-2xl ${tapRow} mb-2 border flex-row items-center justify-between ${
                     preferredVideoIdx < 0 ? 'bg-accent/95 border-accent' : 'bg-white/8 border-white/12 active:bg-white/14'
                   }`}
                 >
@@ -172,7 +180,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
                   <Pressable
                     key={`${vt.trackId ?? i}-${vt.height}`}
                     onPress={() => onVideoIdxChange(i)}
-                    className={`rounded-2xl px-4 py-3.5 mb-2 border flex-row items-center justify-between gap-3 ${
+                    className={`rounded-2xl ${tapRow} mb-2 border flex-row items-center justify-between gap-3 ${
                       preferredVideoIdx === i ? 'bg-accent/95 border-accent' : 'bg-white/8 border-white/12 active:bg-white/14'
                     }`}
                   >
@@ -191,7 +199,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
 
             <Pressable
               onPress={() => setAudioExpanded((v) => !v)}
-              className={`rounded-2xl px-4 py-3.5 border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${audioExpanded ? 'mb-2' : 'mb-4'}`}
+              className={`rounded-2xl ${tapRow} border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${audioExpanded ? 'mb-2' : 'mb-4'}`}
             >
               <View className="flex-row items-center gap-3 flex-1">
                 <Ionicons name="mic-outline" color="rgba(255,255,255,0.55)" size={20} />
@@ -210,7 +218,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
                   <Pressable
                     key={`${at.index}-${i}`}
                     onPress={() => onAudioIdxChange(i)}
-                    className={`rounded-2xl px-4 py-3.5 mb-2 border flex-row items-center justify-between gap-3 ${
+                    className={`rounded-2xl ${tapRow} mb-2 border flex-row items-center justify-between gap-3 ${
                       audioSafeIdx === i ? 'bg-accent/95 border-accent' : 'bg-white/8 border-white/12 active:bg-white/14'
                     }`}
                   >
@@ -228,7 +236,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
 
             <Pressable
               onPress={() => setCaptionsExpanded((v) => !v)}
-              className={`rounded-2xl px-4 py-3.5 border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${captionsExpanded ? 'mb-2' : 'mb-4'}`}
+              className={`rounded-2xl ${tapRow} border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${captionsExpanded ? 'mb-2' : 'mb-4'}`}
               accessibilityRole="button"
               accessibilityState={{ expanded: captionsExpanded }}
               accessibilityLabel="Captions options"
@@ -252,7 +260,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
               <View className="mb-6">
                 <Pressable
                   onPress={() => onSubtitleChange(-1)}
-                  className={`rounded-2xl px-4 py-3.5 mb-2 border flex-row items-center justify-between ${
+                  className={`rounded-2xl ${tapRow} mb-2 border flex-row items-center justify-between ${
                     subtitleTrack < 0 ? 'bg-accent/95 border-accent' : 'bg-white/8 border-white/12 active:bg-white/14'
                   }`}
                 >
@@ -263,7 +271,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
                   <Pressable
                     key={`${t.title}-${idx}`}
                     onPress={() => onSubtitleChange(idx)}
-                    className={`rounded-2xl px-4 py-3.5 mb-2 border flex-row items-center justify-between gap-3 ${
+                    className={`rounded-2xl ${tapRow} mb-2 border flex-row items-center justify-between gap-3 ${
                       subtitleTrack === idx ? 'bg-accent/95 border-accent' : 'bg-white/8 border-white/12 active:bg-white/14'
                     }`}
                   >
@@ -281,7 +289,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
 
             <Pressable
               onPress={() => setStreamExpanded((v) => !v)}
-              className={`rounded-2xl px-4 py-3.5 border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${streamExpanded ? 'mb-2' : 'mb-4'}`}
+              className={`rounded-2xl ${tapRow} border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${streamExpanded ? 'mb-2' : 'mb-4'}`}
               accessibilityRole="button"
               accessibilityState={{ expanded: streamExpanded }}
             >
@@ -305,7 +313,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
                   <Pressable
                     key={`${s.provider.id}-${idx}-${s.quality}`}
                     onPress={() => onSourceChange(idx)}
-                    className={`rounded-2xl px-4 py-3.5 mb-2 border flex-row items-center justify-between gap-3 ${
+                    className={`rounded-2xl ${tapRow} mb-2 border flex-row items-center justify-between gap-3 ${
                       idx === sourceIndex ? 'bg-accent/95 border-accent' : 'bg-white/8 border-white/12 active:bg-white/14'
                     }`}
                   >
@@ -327,7 +335,7 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
             </View>
             <Pressable
               onPress={onMarkIntroEnd}
-              className={`${pill} mb-10`}
+              className={`${pill} ${isAndroidPhone ? 'py-5' : ''} mb-10`}
             >
               <Text className="text-white font-bold text-[15px]">Mark intro end here</Text>
               <Text className="text-white/48 text-[13px] mt-1.5 leading-[19px]">

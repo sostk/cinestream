@@ -99,7 +99,10 @@ export const CineProApi = {
   },
 
   movieSources(tmdbId: string | number): Promise<OmssSourceResponse> {
-    return omssFetchJson<OmssSourceResponse>(`/v1/movies/${encodeURIComponent(String(tmdbId))}`);
+    return omssFetchJson<OmssSourceResponse>(
+      `/v1/movies/${encodeURIComponent(String(tmdbId))}`,
+      { method: 'GET' }
+    );
   },
 
   tvEpisodeSources(params: {

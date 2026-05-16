@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, LayoutAnimation, Platform, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, LayoutAnimation, Platform, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery } from '@tanstack/react-query';
@@ -9,7 +9,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackParamList } from '@/navigation/types';
 import { qk } from '@/api/queryKeys';
 import { TmdbApi } from '@/api/tmdbClient';
-import { CineProApi } from '@/api/cineproClient';
+import { movieSourcesQueryOptions } from '@/player/playbackSourceQuery';
+import {
+  resolveStreamReadyState,
+  streamAvailabilityDetailLine,
+} from '@/player/streamAvailability';
 import { MediaRow } from '@/components/MediaRow';
 import type { MediaCardModel } from '@/components/MediaCard';
 import { useResponsive } from '@/hooks/useResponsive';
@@ -39,17 +43,12 @@ export function MovieDetailScreen() {
     enabled: hasTmdb,
   });
 
-  const sources = useQuery({
-    queryKey: qk.movieSources(id),
-    queryFn: () => CineProApi.movieSources(id),
-    enabled: !!cineproBaseUrl.trim(),
-    retry: (count, err: unknown) => {
-      const status =
-        typeof err === 'object' && err && 'status' in err ? (err as { status?: number }).status : undefined;
-      if (status === 404) return false;
-      return count < 2;
-    },
-  });
+  const coreConfigured = !!cineproBaseUrl.trim();
+  const sources = useQuery(movieSourcesQueryOptions(id, coreConfigured));
+  const streamState = useMemo(
+    () => resolveStreamReadyState(coreConfigured, sources),
+    [coreConfigured, sources.data, sources.error, sources.isError, sources.isFetching, sources.isPending]
+  );
 
   const rec = useQuery({
     queryKey: qk.recMovies(id, 1),
@@ -73,7 +72,7 @@ export function MovieDetailScreen() {
     return continueWatching.find((c) => c.mediaKey === key)?.positionSec;
   }, [continueWatching, id]);
 
-  const onPlay = useCallback(() => {
+  const openPlayer = useCallback(() => {
     const d = detail.data;
     if (!d) return;
     navigation.navigate('Player', {
@@ -85,6 +84,22 @@ export function MovieDetailScreen() {
       resumeSec,
     });
   }, [detail.data, id, navigation, resumeSec]);
+
+  const onPlay = useCallback(() => {
+    if (!detail.data) return;
+    if (streamState.status === 'ready') {
+      openPlayer();
+      return;
+    }
+    if (streamState.status === 'loading') {
+      Alert.alert(streamState.title, streamState.message, [
+        { text: 'Wait', style: 'cancel' },
+        { text: 'Open player', onPress: openPlayer },
+      ]);
+      return;
+    }
+    Alert.alert(streamState.title, streamState.message);
+  }, [detail.data, openPlayer, streamState]);
 
   const backdropUri = tmdbImg(detail.data?.backdrop_path ?? detail.data?.poster_path, 'w1280');
   const posterUri = tmdbImg(detail.data?.poster_path, 'w500');
@@ -244,12 +259,34 @@ export function MovieDetailScreen() {
 
                 <View className="mt-6 gap-3">
                   <FocusSurface
-                    className="rounded-2xl bg-accent py-4 flex-row items-center justify-center gap-2 shadow-lg"
+                    className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 shadow-lg ${
+                      streamState.status === 'ready' ? 'bg-accent' : 'bg-white/14 border border-white/16'
+                    }`}
                     onPress={onPlay}
-                    accessibilityLabel={resumeSec ? 'Resume playback' : 'Play movie'}
+                    accessibilityLabel={
+                      streamState.status === 'loading'
+                        ? 'Streams are still loading'
+                        : resumeSec
+                          ? 'Resume playback'
+                          : 'Play movie'
+                    }
                   >
-                    <Ionicons name={resumeSec ? 'play-circle' : 'play'} color="#fff" size={22} />
-                    <Text className="text-white font-bold text-base">{resumeSec ? 'Resume' : 'Play'}</Text>
+                    {streamState.status === 'loading' ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Ionicons
+                        name={resumeSec ? 'play-circle' : 'play'}
+                        color="#fff"
+                        size={22}
+                      />
+                    )}
+                    <Text className="text-white font-bold text-base">
+                      {streamState.status === 'loading'
+                        ? 'Loading streams…'
+                        : resumeSec
+                          ? 'Resume'
+                          : 'Play'}
+                    </Text>
                   </FocusSurface>
 
                   <View className="flex-row gap-3">
@@ -299,20 +336,22 @@ export function MovieDetailScreen() {
                 <View className="mt-6 rounded-2xl bg-white/[0.06] border border-white/10 p-4">
                   <View className="flex-row items-center gap-2 mb-2">
                     <Ionicons
-                      name={sources.data?.sources.length ? 'cloud-done-outline' : sources.error ? 'cloud-offline-outline' : 'cloud-outline'}
+                      name={
+                        streamState.status === 'ready'
+                          ? 'cloud-done-outline'
+                          : streamState.status === 'loading'
+                            ? 'cloud-download-outline'
+                            : streamState.status === 'error' || streamState.status === 'no_core'
+                              ? 'cloud-offline-outline'
+                              : 'cloud-outline'
+                      }
                       color="rgba(255,255,255,0.75)"
                       size={20}
                     />
                     <Text className="text-white font-semibold text-[15px]">Streaming availability</Text>
                   </View>
                   <Text className="text-white/65 text-sm leading-5">
-                    {sources.isLoading
-                      ? 'Connecting to your CinePro Core server…'
-                      : sources.data
-                        ? `${sources.data.sources.length} source${sources.data.sources.length === 1 ? '' : 's'} ready · refresh before ${new Date(sources.data.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                        : sources.error
-                          ? 'No sources yet — check that Core is running and Settings → URL is correct.'
-                          : 'No stream data.'}
+                    {streamAvailabilityDetailLine(streamState, sources.data?.expiresAt)}
                   </Text>
                 </View>
               </>
