@@ -1,13 +1,16 @@
 import React, { useCallback, useMemo } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView } from 'react-native';
 import { MediaRow } from '@/components/MediaRow';
 import type { MediaCardModel } from '@/components/MediaCard';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useLibraryStore } from '@/store/libraryStore';
+import { ThemedScreen, ThemedText } from '@/theme/themedPrimitives';
+import { useAppTheme } from '@/theme/AppThemeProvider';
 
 export function LibraryScreen() {
   const navigation = useAppNavigation();
+  const { colors } = useAppTheme();
   const { posterW, posterH, sectionGap } = useResponsive();
   const watchlist = useLibraryStore((s) => s.watchlist);
   const favorites = useLibraryStore((s) => s.favorites);
@@ -61,10 +64,12 @@ export function LibraryScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-ink"
+      style={{ flex: 1, backgroundColor: colors.ink }}
       contentContainerStyle={{ paddingTop: sectionGap * 6, paddingBottom: sectionGap * 6 }}
     >
-      <Text className="text-white text-3xl font-bold px-4 mb-6">Library</Text>
+      <ThemedText variant="title" className="text-3xl px-4 mb-6">
+        Library
+      </ThemedText>
       <MediaRow
         title="Continue watching"
         data={continueModels}

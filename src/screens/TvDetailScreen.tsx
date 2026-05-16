@@ -24,6 +24,9 @@ import { usePlayTvEpisode } from '@/player/usePlayTvEpisode';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import { tmdbImg } from '@/services/tmdbImages';
+import { useAppTheme } from '@/theme/AppThemeProvider';
+import { ThemedBackButton } from '@/theme/themedPrimitives';
+import { useThemedStyles } from '@/hooks/useThemedStyles';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { TmdbSeasonSummary } from '@/api/types/tmdb';
 
@@ -41,6 +44,8 @@ export function TvDetailScreen() {
   const { id } = route.params;
   const { posterW, posterH, overscanX, sectionGap, heroH } = useResponsive();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useAppTheme();
+  const ts = useThemedStyles();
   const [overviewExpanded, setOverviewExpanded] = useState(false);
   const hasTmdb = useHasConfiguredTmdbKey();
   const cineproBaseUrl = useSettingsStore((s) => s.cineproBaseUrl);
@@ -180,9 +185,11 @@ export function TvDetailScreen() {
     setOverviewExpanded((v) => !v);
   };
 
+  const hp = Math.max(overscanX, 16);
+
   return (
     <ScrollView
-      className="flex-1 bg-ink"
+      style={{ flex: 1, backgroundColor: colors.ink }}
       contentContainerStyle={{ paddingBottom: sectionGap * 10 }}
       showsVerticalScrollIndicator={false}
     >
@@ -195,35 +202,35 @@ export function TvDetailScreen() {
           cachePolicy="memory-disk"
         />
         <LinearGradient
-          colors={['rgba(7,8,13,0.15)', 'rgba(7,8,13,0.55)', '#07080d']}
+          colors={colors.heroGradient}
           locations={[0, 0.55, 1]}
           style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
         />
-        <View
-          style={{
-            position: 'absolute',
-            left: overscanX,
-            right: overscanX,
-            top: insets.top + 10,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <FocusSurface
-            className="rounded-full bg-black/55 border border-white/18 px-3 py-2.5"
-            onPress={() => navigation.goBack()}
-            accessibilityLabel="Go back"
-          >
-            <Ionicons name="chevron-back" color="#fff" size={24} />
-          </FocusSurface>
+        <View style={{ position: 'absolute', left: hp, right: hp, top: insets.top + 10 }}>
+          <ThemedBackButton onPress={() => navigation.goBack()} />
         </View>
       </View>
 
-      <View style={{ paddingHorizontal: Math.max(overscanX, 16), marginTop: -72 }}>
-        <View className="rounded-3xl border border-white/12 bg-[#12131c] overflow-hidden shadow-2xl">
+      <View style={{ paddingHorizontal: hp, marginTop: -72 }}>
+        <View
+          className="rounded-3xl overflow-hidden"
+          style={{
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            borderWidth: 1,
+            ...(isDark
+              ? {}
+              : {
+                  shadowColor: colors.shadow,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 12,
+                  elevation: 4,
+                }),
+          }}
+        >
           <LinearGradient
-            colors={['rgba(229,9,20,0.08)', 'transparent']}
+            colors={[colors.accentSoft, 'transparent']}
             style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 120 }}
           />
 
@@ -231,13 +238,13 @@ export function TvDetailScreen() {
             {loading ? (
               <View className="gap-4 py-2">
                 <View className="flex-row gap-4">
-                  <View className="w-[118px] rounded-2xl bg-white/10 aspect-[2/3]" />
+                  <View className="w-[118px] rounded-2xl aspect-[2/3]" style={ts.skeletonBlock} />
                   <View className="flex-1 gap-2 justify-center">
-                    <View className="h-6 rounded-lg bg-white/10 w-[90%]" />
-                    <View className="h-4 rounded-lg bg-white/10 w-[40%]" />
+                    <View className="h-6 rounded-lg w-[90%]" style={ts.skeletonBlock} />
+                    <View className="h-4 rounded-lg w-[40%]" style={ts.skeletonBlock} />
                   </View>
                 </View>
-                <ActivityIndicator color="#e50914" style={{ marginTop: 16 }} />
+                <ActivityIndicator color={colors.accent} style={{ marginTop: 16 }} />
               </View>
             ) : (
               <>
@@ -250,11 +257,11 @@ export function TvDetailScreen() {
                     accessibilityLabel={`Poster for ${d?.name ?? 'series'}`}
                   />
                   <View className="flex-1 justify-center">
-                    <Text className="text-white text-[22px] font-bold leading-7" numberOfLines={3}>
+                    <Text className="text-[22px] font-bold leading-7" style={{ color: colors.text }} numberOfLines={3}>
                       {d?.name ?? 'Series'}
                     </Text>
                     {d?.tagline ? (
-                      <Text className="text-white/45 text-sm italic mt-2" numberOfLines={2}>
+                      <Text className="text-sm italic mt-2" style={{ color: colors.textFaint }} numberOfLines={2}>
                         {d.tagline}
                       </Text>
                     ) : null}
@@ -268,51 +275,60 @@ export function TvDetailScreen() {
                   contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}
                 >
                   {d?.first_air_date ? (
-                    <View className="rounded-full bg-white/10 border border-white/12 px-3 py-1.5">
-                      <Text className="text-white/90 text-xs font-semibold">
+                    <View style={ts.metaChip}>
+                      <Text className="text-xs font-semibold" style={{ color: colors.text }}>
                         Since {d.first_air_date.slice(0, 4)}
                       </Text>
                     </View>
                   ) : null}
                   {d?.number_of_seasons != null ? (
-                    <View className="rounded-full bg-white/10 border border-white/12 px-3 py-1.5 flex-row items-center gap-1">
-                      <Ionicons name="albums-outline" color="rgba(255,255,255,0.85)" size={14} />
-                      <Text className="text-white/90 text-xs font-semibold">
+                    <View style={[ts.metaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                      <Ionicons name="albums-outline" color={colors.textMuted} size={14} />
+                      <Text className="text-xs font-semibold" style={{ color: colors.text }}>
                         {d.number_of_seasons} season{d.number_of_seasons === 1 ? '' : 's'}
                       </Text>
                     </View>
                   ) : null}
                   {avgRuntime != null ? (
-                    <View className="rounded-full bg-white/10 border border-white/12 px-3 py-1.5 flex-row items-center gap-1">
-                      <Ionicons name="time-outline" color="rgba(255,255,255,0.85)" size={14} />
-                      <Text className="text-white/90 text-xs font-semibold">~{avgRuntime} min / ep</Text>
+                    <View style={[ts.metaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                      <Ionicons name="time-outline" color={colors.textMuted} size={14} />
+                      <Text className="text-xs font-semibold" style={{ color: colors.text }}>
+                        ~{avgRuntime} min / ep
+                      </Text>
                     </View>
                   ) : null}
                   {d?.vote_average != null ? (
-                    <View className="rounded-full bg-white/10 border border-white/12 px-3 py-1.5 flex-row items-center gap-1">
+                    <View style={[ts.metaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                       <Ionicons name="star" color="#f5c518" size={14} />
-                      <Text className="text-white/90 text-xs font-semibold">{d.vote_average.toFixed(1)} TMDB</Text>
+                      <Text className="text-xs font-semibold" style={{ color: colors.text }}>
+                        {d.vote_average.toFixed(1)} TMDB
+                      </Text>
                     </View>
                   ) : null}
                   {(d?.genres ?? []).map((g) => (
-                    <View key={g.id} className="rounded-full bg-accent/20 border border-accent/35 px-3 py-1.5">
-                      <Text className="text-white text-xs font-medium">{g.name}</Text>
+                    <View key={g.id} style={ts.genreChip}>
+                      <Text className="text-xs font-medium" style={{ color: colors.text }}>
+                        {g.name}
+                      </Text>
                     </View>
                   ))}
                 </ScrollView>
 
                 {d?.overview ? (
                   <View className="mt-5">
-                    <Text className="text-white/55 text-xs uppercase tracking-widest mb-2">About</Text>
+                    <Text className="text-xs uppercase tracking-widest mb-2" style={{ color: colors.textMuted }}>
+                      About
+                    </Text>
                     <Text
-                      className="text-white/85 text-[15px] leading-6"
+                      className="text-[15px] leading-6"
+                      style={{ color: colors.text }}
                       numberOfLines={overviewExpanded ? undefined : OVERVIEW_PREVIEW_LINES}
                     >
                       {d.overview}
                     </Text>
                     {(d.overview?.length ?? 0) > 220 ? (
                       <FocusSurface className="self-start mt-2 py-1" onPress={toggleOverview}>
-                        <Text className="text-accent text-sm font-semibold">
+                        <Text className="text-sm font-semibold" style={{ color: colors.accent }}>
                           {overviewExpanded ? 'Show less' : 'Read more'}
                         </Text>
                       </FocusSurface>
@@ -322,7 +338,8 @@ export function TvDetailScreen() {
 
                 {continueEpisode?.season != null && continueEpisode.episode != null ? (
                   <FocusSurface
-                    className="mt-6 rounded-2xl py-4 px-4 flex-row items-center gap-3 bg-accent shadow-lg active:opacity-90"
+                    className="mt-6 rounded-2xl py-4 px-4 flex-row items-center gap-3 active:opacity-90"
+                    style={ts.accentButton}
                     onPress={() => {
                       const epNum = continueEpisode.episode!;
                       const epTitle =
@@ -347,10 +364,12 @@ export function TvDetailScreen() {
                     }}
                     accessibilityLabel="Resume watching"
                   >
-                    <Ionicons name="play-circle" color="#fff" size={28} />
+                    <Ionicons name="play-circle" color={colors.textOnAccent} size={28} />
                     <View className="flex-1">
-                      <Text className="text-white font-bold text-base">Resume</Text>
-                      <Text className="text-white/80 text-sm mt-0.5">
+                      <Text className="font-bold text-base" style={{ color: colors.textOnAccent }}>
+                        Resume
+                      </Text>
+                      <Text className="text-sm mt-0.5" style={{ color: colors.textOnAccent, opacity: 0.85 }}>
                         S{continueEpisode.season} · E{continueEpisode.episode}
                         {continueEpisode.episodeTitle ? ` · ${continueEpisode.episodeTitle}` : ''}
                       </Text>
@@ -360,16 +379,22 @@ export function TvDetailScreen() {
 
                 <View className="mt-6 gap-3">
                   <View className="flex-row items-center justify-between gap-2">
-                    <Text className="text-white/55 text-xs uppercase tracking-widest">Seasons</Text>
+                    <Text className="text-xs uppercase tracking-widest" style={{ color: colors.textMuted }}>
+                      Seasons
+                    </Text>
                     {playableSeasons.length > 0 ? (
                       <FocusSurface className="py-1 px-1 active:opacity-80" onPress={openSeasonBrowser}>
-                        <Text className="text-accent text-xs font-bold">Full list</Text>
+                        <Text className="text-xs font-bold" style={{ color: colors.accent }}>
+                          Full list
+                        </Text>
                       </FocusSurface>
                     ) : null}
                   </View>
 
                   {playableSeasons.length === 0 ? (
-                    <Text className="text-white/45 text-sm">No seasons to show.</Text>
+                    <Text className="text-sm" style={{ color: colors.textFaint }}>
+                      No seasons to show.
+                    </Text>
                   ) : (
                     <ScrollView
                       horizontal
@@ -381,15 +406,15 @@ export function TvDetailScreen() {
                         return (
                           <FocusSurface
                             key={season.id}
-                            className={`rounded-full px-4 py-2.5 border ${
-                              active ? 'bg-accent border-accent' : 'bg-white/10 border-white/14 active:bg-white/16'
-                            }`}
+                            className="rounded-full px-4 py-2.5"
+                            style={active ? ts.chipActive : ts.chip}
                             onPress={() => selectSeason(season.season_number)}
                             accessibilityLabel={season.name}
                             accessibilityState={{ selected: active }}
                           >
                             <Text
-                              className={`font-bold text-sm ${active ? 'text-white' : 'text-white/85'}`}
+                              className="font-bold text-sm"
+                              style={{ color: active ? colors.textOnAccent : colors.text }}
                               numberOfLines={1}
                             >
                               {seasonChipLabel(season)}
@@ -401,30 +426,32 @@ export function TvDetailScreen() {
                   )}
 
                   <View className="flex-row items-center justify-between mt-1">
-                    <Text className="text-white font-semibold text-[15px] flex-1" numberOfLines={1}>
+                    <Text className="font-semibold text-[15px] flex-1" style={{ color: colors.text }} numberOfLines={1}>
                       {selectedSeasonSummary?.name ?? `Season ${selectedSeasonNumber}`}
                     </Text>
                     {seasonDetail.isLoading ? (
-                      <ActivityIndicator color="#e50914" size="small" />
+                      <ActivityIndicator color={colors.accent} size="small" />
                     ) : (
-                      <Text className="text-white/45 text-xs">
+                      <Text className="text-xs" style={{ color: colors.textFaint }}>
                         {seasonEpisodes.length} ep · {readyCount} ready
                       </Text>
                     )}
                   </View>
 
                   {seasonDetail.isError ? (
-                    <View className="rounded-2xl bg-white/8 border border-white/12 py-4 px-4">
-                      <Text className="text-white/70 text-center text-sm">
+                    <View className="rounded-2xl py-4 px-4" style={ts.infoPanel}>
+                      <Text className="text-center text-sm" style={{ color: colors.textMuted }}>
                         Couldn’t load episodes. Check your connection and TMDB key.
                       </Text>
                     </View>
                   ) : seasonDetail.isLoading ? (
                     <View className="py-8 items-center">
-                      <ActivityIndicator color="#e50914" size="large" />
+                      <ActivityIndicator color={colors.accent} size="large" />
                     </View>
                   ) : seasonEpisodes.length === 0 ? (
-                    <Text className="text-white/45 text-sm py-4">No episodes in this season.</Text>
+                    <Text className="text-sm py-4" style={{ color: colors.textFaint }}>
+                      No episodes in this season.
+                    </Text>
                   ) : (
                     <View className="gap-2.5">
                       {seasonEpisodes.map((item) => {
@@ -448,11 +475,12 @@ export function TvDetailScreen() {
                         return (
                           <FocusSurface
                             key={item.id}
-                            className={`rounded-2xl overflow-hidden border ${
-                              isContinue
-                                ? 'bg-accent/15 border-accent/40'
-                                : 'bg-white/6 border-white/10 active:bg-white/10'
-                            }`}
+                            className="rounded-2xl overflow-hidden"
+                            style={{
+                              borderWidth: 1,
+                              borderColor: isContinue ? colors.accentBorder : colors.border,
+                              backgroundColor: isContinue ? colors.accentSoft : colors.inputBg,
+                            }}
                             onPress={() => playEpisode(item.episode_number, item.name)}
                             accessibilityLabel={`Play episode ${item.episode_number} ${item.name}`}
                           >
@@ -465,21 +493,24 @@ export function TvDetailScreen() {
                               />
                               <View className="flex-1 p-3 justify-center">
                                 <View className="flex-row items-center gap-2">
-                                  <Text className="text-white font-semibold flex-1" numberOfLines={2}>
+                                  <Text className="font-semibold flex-1" style={{ color: colors.text }} numberOfLines={2}>
                                     E{item.episode_number}: {item.name}
                                   </Text>
                                   {epLoading ? (
-                                    <ActivityIndicator color="#e50914" size="small" />
+                                    <ActivityIndicator color={colors.accent} size="small" />
                                   ) : epReady ? (
-                                    <Ionicons name="cloud-done-outline" color="#e50914" size={18} />
+                                    <Ionicons name="cloud-done-outline" color={colors.accent} size={18} />
                                   ) : null}
                                 </View>
                                 {isContinue ? (
-                                  <Text className="text-accent text-[11px] font-bold mt-1 uppercase tracking-wide">
+                                  <Text
+                                    className="text-[11px] font-bold mt-1 uppercase tracking-wide"
+                                    style={{ color: colors.accent }}
+                                  >
                                     Continue
                                   </Text>
                                 ) : item.overview ? (
-                                  <Text className="text-white/50 text-xs mt-1.5" numberOfLines={2}>
+                                  <Text className="text-xs mt-1.5" style={{ color: colors.textMuted }} numberOfLines={2}>
                                     {item.overview}
                                   </Text>
                                 ) : null}
@@ -495,7 +526,8 @@ export function TvDetailScreen() {
                 <View className="mt-6 gap-3">
                   <View className="flex-row gap-3">
                     <FocusSurface
-                      className="flex-1 rounded-2xl bg-white/10 border border-white/14 py-3.5 flex-row items-center justify-center gap-2"
+                      className="flex-1 rounded-2xl py-3.5 flex-row items-center justify-center gap-2"
+                      style={ts.secondaryButton}
                       onPress={() =>
                         d &&
                         toggleWatchlist({
@@ -508,13 +540,16 @@ export function TvDetailScreen() {
                     >
                       <Ionicons
                         name={inWatchlist ? 'bookmark' : 'bookmark-outline'}
-                        color="#fff"
+                        color={colors.text}
                         size={20}
                       />
-                      <Text className="text-white font-semibold text-sm">Watchlist</Text>
+                      <Text className="font-semibold text-sm" style={{ color: colors.text }}>
+                        Watchlist
+                      </Text>
                     </FocusSurface>
                     <FocusSurface
-                      className="flex-1 rounded-2xl bg-white/10 border border-white/14 py-3.5 flex-row items-center justify-center gap-2"
+                      className="flex-1 rounded-2xl py-3.5 flex-row items-center justify-center gap-2"
+                      style={ts.secondaryButton}
                       onPress={() =>
                         d &&
                         toggleFavorite({
@@ -527,16 +562,18 @@ export function TvDetailScreen() {
                     >
                       <Ionicons
                         name={inFavorites ? 'heart' : 'heart-outline'}
-                        color={inFavorites ? '#ff5c66' : '#fff'}
+                        color={inFavorites ? colors.accentMuted : colors.text}
                         size={20}
                       />
-                      <Text className="text-white font-semibold text-sm">Favorite</Text>
+                      <Text className="font-semibold text-sm" style={{ color: colors.text }}>
+                        Favorite
+                      </Text>
                     </FocusSurface>
                   </View>
                 </View>
 
                 {selectedSeasonSummary ? (
-                  <View className="mt-5 rounded-2xl bg-white/[0.06] border border-white/10 p-4">
+                  <View className="mt-5" style={ts.infoPanel}>
                     <View className="flex-row items-center gap-2 mb-2">
                       <Ionicons
                         name={
@@ -546,12 +583,14 @@ export function TvDetailScreen() {
                               ? 'cloud-download-outline'
                               : 'cloud-offline-outline'
                         }
-                        color="rgba(255,255,255,0.75)"
+                        color={colors.textMuted}
                         size={20}
                       />
-                      <Text className="text-white font-semibold text-[15px]">Streaming availability</Text>
+                      <Text className="font-semibold text-[15px]" style={{ color: colors.text }}>
+                        Streaming availability
+                      </Text>
                     </View>
-                    <Text className="text-white/65 text-sm leading-5">
+                    <Text className="text-sm leading-5" style={{ color: colors.textMuted }}>
                       {streamState.status === 'ready'
                         ? `Prefetching ${selectedSeasonSummary.name} · ${streamAvailabilityDetailLine(
                             streamState,

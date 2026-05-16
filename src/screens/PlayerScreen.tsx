@@ -76,6 +76,7 @@ import { PlayerProgressBar } from '@/player/PlayerProgressBar';
 import { PlayerSettingsModal } from '@/player/PlayerSettingsModal';
 import { resolveStreamReadyState } from '@/player/streamAvailability';
 import { aspectRatioValue, formatAspectLabel } from '@/player/playerDisplay';
+import { useAppTheme } from '@/theme/AppThemeProvider';
 
 const RATES = [0.75, 1, 1.25, 1.5, 2] as const;
 
@@ -89,6 +90,7 @@ function PlayerFetchSkeleton({
   title: string;
   message: string;
 }) {
+  const { colors } = useAppTheme();
   const p = useSharedValue(0);
   useEffect(() => {
     p.value = withRepeat(withTiming(1, { duration: 900 }), -1, true);
@@ -99,11 +101,29 @@ function PlayerFetchSkeleton({
   return (
     <View className="flex-1 px-8 justify-center gap-5">
       <View className="items-center gap-3 mb-2">
-        <ActivityIndicator color="#e50914" size="large" />
-        <Text className="text-white text-xl font-bold text-center">{title}</Text>
-        <Text className="text-white/55 text-[15px] leading-[22px] text-center max-w-[320px]">{message}</Text>
+        <ActivityIndicator color={colors.accent} size="large" />
+        <Text className="text-xl font-bold text-center" style={{ color: colors.playerHudText }}>
+          {title}
+        </Text>
+        <Text
+          className="text-[15px] leading-[22px] text-center max-w-[320px]"
+          style={{ color: colors.playerHudMuted }}
+        >
+          {message}
+        </Text>
       </View>
-      <Animated.View style={a} className={`rounded-[26px] bg-white/10 ${wide ? 'h-40' : 'h-32'} border border-white/10`} />
+      <Animated.View
+        style={[
+          a,
+          {
+            borderRadius: 26,
+            backgroundColor: 'rgba(255,255,255,0.1)',
+            borderColor: colors.playerHudBorder,
+            borderWidth: 1,
+            height: wide ? 160 : 128,
+          },
+        ]}
+      />
       <Animated.View style={a} className="h-3 rounded-full bg-white/10 w-[88%]" />
       <Animated.View style={a} className="h-3 rounded-full bg-white/10 w-[55%]" />
     </View>
@@ -113,6 +133,7 @@ function PlayerFetchSkeleton({
 export function PlayerScreen() {
   useKeepAwake();
   usePlayerOrientation(true);
+  const { colors } = useAppTheme();
   const navigation = useAppNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'Player'>>();
   const params = route.params;
@@ -893,7 +914,7 @@ export function PlayerScreen() {
                 pointerEvents="none"
                 className="absolute inset-0 items-center justify-center bg-black/25"
               >
-                <ActivityIndicator color="#e50914" size="large" />
+                <ActivityIndicator color={colors.accent} size="large" />
               </View>
             )}
               />
@@ -1073,7 +1094,7 @@ export function PlayerScreen() {
             className={`rounded-2xl overflow-hidden border border-accent/40 max-w-[340px] w-full ${isAndroidPhone ? 'px-7 py-5' : 'px-6 py-4'}`}
           >
             <View className="flex-row items-center gap-3">
-              <ActivityIndicator color="#e50914" size="small" />
+              <ActivityIndicator color={colors.accent} size="small" />
               <View className="flex-1 gap-1">
                 <Text
                   className={`text-white font-bold ${isAndroidPhone ? 'text-[16px]' : 'text-[15px]'}`}

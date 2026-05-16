@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "cinestream",
-    "slug": "cinestream",
+    "name": "CinePro",
+    "slug": "cinepro",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/logo/dark.png",
@@ -36,6 +36,15 @@
       "bundler": "metro"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo/dark.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#07080d"
+        }
+      ],
       [
         "react-native-video",
         {

@@ -2,6 +2,7 @@ import React from 'react';
 import { Text } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { FocusSurface } from '@/tv/FocusSurface';
+import { BRAND_ACCENT } from '@/theme/colors';
 import {
   aspectHudLabel,
   cycleAspectMode,
@@ -34,13 +35,14 @@ export function PlayerDisplayHudControls({
   const resizeLabel = resizeHudLabel(resizeMode);
   const aspectLabel = aspectHudLabel(aspectMode);
 
-  const btnClass = 'rounded-full items-center justify-center bg-accent active:opacity-90 shadow-lg shadow-black/30';
+  const btnClass = 'rounded-full items-center justify-center active:opacity-90 shadow-lg shadow-black/30';
+  const btnStyle = { backgroundColor: BRAND_ACCENT };
 
   return (
     <>
       <FocusSurface
         className={`${btnClass} px-3`}
-        style={{ height: buttonSize, minWidth: buttonSize }}
+        style={[btnStyle, { height: buttonSize, minWidth: buttonSize }]}
         hitSlop={hitSlop}
         onPress={() => onResizeModeChange(cycleResizeMode(resizeMode))}
         accessibilityLabel={`Resize ${resizeLabel}, tap to change`}
@@ -51,7 +53,7 @@ export function PlayerDisplayHudControls({
 
       <FocusSurface
         className={`${btnClass} px-3`}
-        style={{ height: buttonSize, minWidth: buttonSize }}
+        style={[btnStyle, { height: buttonSize, minWidth: buttonSize }]}
         hitSlop={hitSlop}
         onPress={() => onAspectModeChange(cycleAspectMode(aspectMode))}
         accessibilityLabel={`Aspect ratio ${aspectLabel}, source ${detectedAspectLabel}, tap to change`}

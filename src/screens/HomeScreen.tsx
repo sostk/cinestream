@@ -7,9 +7,13 @@ import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { TmdbApi } from '@/api/tmdbClient';
 import { qk } from '@/api/queryKeys';
 import type { MediaCardModel } from '@/components/MediaCard';
+import { AppLogo } from '@/components/AppLogo';
 import { HeroCarousel } from '@/components/HeroCarousel';
+import { useAppTheme } from '@/theme/AppThemeProvider';
 import { MediaRow } from '@/components/MediaRow';
 import { MissingKeysBanner } from '@/components/MissingKeysBanner';
+import { ThemedCard, ThemedText } from '@/theme/themedPrimitives';
+import { useThemedStyles } from '@/hooks/useThemedStyles';
 import { useResponsive } from '@/hooks/useResponsive';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
@@ -39,6 +43,8 @@ function mapTv(m: TmdbTvListResult): MediaCardModel {
 
 export function HomeScreen() {
   const navigation = useAppNavigation();
+  const { colors } = useAppTheme();
+  const ts = useThemedStyles();
   const insets = useSafeAreaInsets();
   const { posterW, posterH, heroH, overscanX, sectionGap } = useResponsive();
   const hasTmdb = useHasConfiguredTmdbKey();
@@ -118,15 +124,18 @@ export function HomeScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-ink"
+      className="flex-1"
+      style={{ backgroundColor: colors.ink }}
       contentContainerStyle={{
         paddingBottom: sectionGap * 10,
       }}
       showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#fff" />}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.accent} />
+      }
     >
       <LinearGradient
-        colors={['#161929', '#07080d', '#07080d']}
+        colors={colors.gradientHero}
         locations={[0, 0.35, 1]}
         style={{
           paddingTop: Math.max(insets.top, 12),
@@ -134,8 +143,8 @@ export function HomeScreen() {
           paddingHorizontal: hp,
         }}
       >
-        <View className="flex-row items-start justify-between gap-4 mb-1">
-          <Text className="text-white/40 text-[11px] font-bold tracking-[0.28em]">CINESTREAM</Text>
+        <View className="flex-row items-center justify-between gap-4 mb-1">
+          <AppLogo width={128} height={34} />
         </View>
       </LinearGradient>
 
@@ -147,9 +156,13 @@ export function HomeScreen() {
 
       {genreChips.length ? (
         <View style={{ marginTop: sectionGap * 2.5, paddingHorizontal: hp }}>
-          <View className="rounded-3xl border border-white/10 bg-[#12131c] p-4 pb-5 overflow-hidden">
-            <Text className="text-white/40 text-[11px] font-bold tracking-[0.2em] mb-2">DISCOVER</Text>
-            <Text className="text-white text-xl font-bold mb-4">Browse by genre</Text>
+          <ThemedCard className="rounded-3xl p-4 pb-5">
+            <ThemedText variant="eyebrow" className="mb-2">
+              DISCOVER
+            </ThemedText>
+            <ThemedText variant="title" className="text-xl mb-4">
+              Browse by genre
+            </ThemedText>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -158,10 +171,15 @@ export function HomeScreen() {
               {genreChips.map((item: TmdbGenre, index: number) => (
                 <React.Fragment key={item.id}>
                   {index > 0 ? (
-                    <View className="w-px h-7 bg-white/18 self-center mx-3" accessibilityElementsHidden />
+                    <View
+                      className="w-px h-7 self-center mx-3"
+                      style={{ backgroundColor: colors.borderStrong }}
+                      accessibilityElementsHidden
+                    />
                   ) : null}
                   <FocusSurface
-                    className="rounded-full bg-white/[0.08] border border-white/14 px-5 py-2.5 active:bg-white/14"
+                    className="rounded-full px-5 py-2.5"
+                    style={ts.chip}
                     onPress={() =>
                       navigation.navigate('Genre', {
                         genreId: item.id,
@@ -171,12 +189,14 @@ export function HomeScreen() {
                     }
                     accessibilityLabel={`Genre ${item.name}`}
                   >
-                    <Text className="text-white text-sm font-semibold">{item.name}</Text>
+                    <Text className="text-sm font-semibold" style={{ color: colors.text }}>
+                      {item.name}
+                    </Text>
                   </FocusSurface>
                 </React.Fragment>
               ))}
             </ScrollView>
-          </View>
+          </ThemedCard>
         </View>
       ) : null}
 

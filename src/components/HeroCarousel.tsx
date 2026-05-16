@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { tmdbImg } from '@/services/tmdbImages';
 import type { MediaCardModel } from '@/components/MediaCard';
 import { FocusSurface } from '@/tv/FocusSurface';
+import { useAppTheme } from '@/theme/AppThemeProvider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 type Props = {
@@ -26,6 +27,7 @@ export const HeroCarousel = memo(function HeroCarousel({
   overscanX,
   onOpenActive,
 }: Props) {
+  const { colors } = useAppTheme();
   const [index, setIndex] = useState(0);
   const opacity = useSharedValue(1);
 
@@ -55,11 +57,15 @@ export const HeroCarousel = memo(function HeroCarousel({
   if (!active) {
     return (
       <View style={{ height: heroHeight, paddingHorizontal: overscanX }}>
-        <View className="flex-1 rounded-3xl overflow-hidden">
-          <LinearGradient colors={['#1a1f35', '#07080d', '#07080d']} style={{ flex: 1 }} />
+        <View className="flex-1 rounded-3xl overflow-hidden border" style={{ borderColor: colors.border }}>
+          <LinearGradient colors={colors.gradientHero} style={{ flex: 1 }} />
           <View className="absolute bottom-8 left-6 right-6">
-            <Text className="text-white/35 text-xs tracking-[3px] font-semibold">FEATURED</Text>
-          <Text className="text-white/50 text-base mt-2">Add your TMDB API key in Settings to see spotlight titles.</Text>
+            <Text className="text-xs tracking-[3px] font-semibold" style={{ color: colors.textFaint }}>
+              FEATURED
+            </Text>
+            <Text className="text-base mt-2" style={{ color: colors.textMuted }}>
+              Add your TMDB API key in Settings to see spotlight titles.
+            </Text>
           </View>
         </View>
       </View>
@@ -72,7 +78,12 @@ export const HeroCarousel = memo(function HeroCarousel({
 
   return (
     <View style={{ height: heroHeight, paddingHorizontal: overscanX }} className="relative">
-      <Animated.View style={[{ flex: 1 }, fadeStyle]} className="overflow-hidden rounded-3xl">
+      <Animated.View
+        style={[
+          { flex: 1, borderColor: colors.border, borderWidth: 1, borderRadius: 24, overflow: 'hidden' },
+          fadeStyle,
+        ]}
+      >
         <Image
           source={backdropUri ? { uri: backdropUri } : undefined}
           style={{ width: '100%', height: '100%' }}
@@ -80,13 +91,9 @@ export const HeroCarousel = memo(function HeroCarousel({
           transition={600}
           cachePolicy="memory-disk"
         />
+        <LinearGradient colors={colors.heroGradient} locations={[0, 0.45, 1]} style={{ position: 'absolute', inset: 0 }} />
         <LinearGradient
-          colors={['rgba(7,8,13,0.2)', 'rgba(7,8,13,0.5)', 'rgba(7,8,13,0.95)']}
-          locations={[0, 0.45, 1]}
-          style={{ position: 'absolute', inset: 0 }}
-        />
-        <LinearGradient
-          colors={['rgba(0,0,0,0.5)', 'transparent']}
+          colors={[colors.overlay, 'transparent']}
           start={{ x: 0, y: 0 }}
           end={{ x: 0.85, y: 0 }}
           style={{ position: 'absolute', inset: 0 }}
@@ -103,42 +110,65 @@ export const HeroCarousel = memo(function HeroCarousel({
                 accessibilityIgnoresInvertColors
               />
             ) : (
-              <View className="w-[102] aspect-[2/3] rounded-[14px] bg-white/10" />
+              <View
+                className="w-[102] aspect-[2/3] rounded-[14px]"
+                style={{ backgroundColor: colors.skeleton }}
+              />
             )}
             <View className="flex-1">
               <View className="flex-row items-center gap-2 mb-2">
-                <View className="rounded-md bg-accent/90 px-2 py-0.5">
-                  <Text className="text-white text-[10px] font-bold tracking-wide">{kind}</Text>
+                <View className="rounded-md px-2 py-0.5" style={{ backgroundColor: colors.accent }}>
+                  <Text className="text-[10px] font-bold tracking-wide" style={{ color: colors.textOnAccent }}>
+                    {kind}
+                  </Text>
                 </View>
-                <Text className="text-white/45 text-[10px] font-semibold tracking-[3px]">SPOTLIGHT</Text>
+                <Text className="text-[10px] font-semibold tracking-[3px]" style={{ color: colors.textFaint }}>
+                  SPOTLIGHT
+                </Text>
               </View>
-              <Text className="text-white text-2xl font-bold leading-8" numberOfLines={2}>
+              <Text className="text-2xl font-bold leading-8" numberOfLines={2} style={{ color: colors.text }}>
                 {active.title}
               </Text>
               {active.subtitle ? (
-                <Text className="text-white/65 text-sm mt-1.5">{active.subtitle}</Text>
+                <Text className="text-sm mt-1.5" style={{ color: colors.textMuted }}>
+                  {active.subtitle}
+                </Text>
               ) : null}
               <View className="flex-row items-center mt-4">
                 {onOpenActive ? (
                   <>
                     <FocusSurface
-                      className="rounded-full bg-white flex-row items-center gap-2 px-5 py-2.5"
+                      className="rounded-full flex-row items-center gap-2 px-5 py-2.5"
+                      style={{ backgroundColor: colors.accent }}
                       onPress={() => onOpenActive(active)}
                       accessibilityLabel={`Open ${active.title}`}
                     >
-                      <Ionicons name="information-circle-outline" color="#07080d" size={18} />
-                      <Text className="text-ink font-bold text-sm">Details</Text>
+                      <Ionicons name="information-circle-outline" color={colors.textOnAccent} size={18} />
+                      <Text className="font-bold text-sm" style={{ color: colors.textOnAccent }}>
+                        Details
+                      </Text>
                     </FocusSurface>
-                    <View className="w-px h-9 bg-white/25 self-center mx-3" accessibilityElementsHidden />
+                    <View
+                      className="w-px h-9 self-center mx-3"
+                      style={{ backgroundColor: colors.borderStrong }}
+                      accessibilityElementsHidden
+                    />
                   </>
                 ) : null}
                 <View className="flex-row items-center gap-1.5">
-                  {slides.map((_, i) => (
-                    <View
-                      key={i}
-                      className={`h-1.5 rounded-full ${i === index % slides.length ? 'bg-white w-5' : 'bg-white/35 w-1.5'}`}
-                    />
-                  ))}
+                  {slides.map((_, i) => {
+                    const activeDot = i === index % slides.length;
+                    return (
+                      <View
+                        key={i}
+                        className="h-1.5 rounded-full"
+                        style={{
+                          width: activeDot ? 20 : 6,
+                          backgroundColor: activeDot ? colors.accent : colors.inputBg,
+                        }}
+                      />
+                    );
+                  })}
                 </View>
               </View>
             </View>

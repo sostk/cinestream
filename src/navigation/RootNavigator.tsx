@@ -1,6 +1,7 @@
 import React from 'react';
 import { Platform } from 'react-native';
-import { NavigationContainer, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
+import { useAppTheme } from '@/theme/AppThemeProvider';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createDrawerNavigator } from '@react-navigation/drawer';
@@ -20,30 +21,18 @@ const RootStack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const Drawer = createDrawerNavigator<MainTabParamList>();
 
-const navTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: '#07080d',
-    card: '#07080d',
-    primary: '#e50914',
-    text: '#ffffff',
-    border: 'rgba(255,255,255,0.08)',
-    notification: '#e50914',
-  },
-};
-
 function Tabs() {
+  const { colors } = useAppTheme();
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#0f111a',
-          borderTopColor: 'rgba(255,255,255,0.06)',
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
         },
-        tabBarActiveTintColor: '#ffffff',
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.45)',
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textMuted,
       }}
     >
       <Tab.Screen
@@ -83,14 +72,15 @@ function Tabs() {
 }
 
 function TvDrawer() {
+  const { colors } = useAppTheme();
   return (
     <Drawer.Navigator
       screenOptions={{
         headerShown: false,
         drawerType: 'permanent',
-        drawerStyle: { width: 300, backgroundColor: '#0f111a' },
-        drawerActiveTintColor: '#ffffff',
-        drawerInactiveTintColor: 'rgba(255,255,255,0.55)',
+        drawerStyle: { width: 300, backgroundColor: colors.surface },
+        drawerActiveTintColor: colors.text,
+        drawerInactiveTintColor: colors.textMuted,
       }}
     >
       <Drawer.Screen
@@ -124,6 +114,7 @@ function Shell() {
 }
 
 export function RootNavigator() {
+  const { navTheme } = useAppTheme();
   return (
     <NavigationContainer theme={navTheme}>
       <RootStack.Navigator

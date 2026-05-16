@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useRoute } from '@react-navigation/native';
@@ -13,12 +13,13 @@ import { GRID_LIST_SIDE_PADDING, GRID_ROW_GAP, gridPosterSlotDimensions } from '
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { MissingKeysBanner } from '@/components/MissingKeysBanner';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
-import { FocusSurface } from '@/tv/FocusSurface';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { ThemedBackButton, ThemedScreen, ThemedText } from '@/theme/themedPrimitives';
+import { useAppTheme } from '@/theme/AppThemeProvider';
 
 export function GenreScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'Genre'>>();
   const navigation = useAppNavigation();
+  const { colors } = useAppTheme();
   const { overscanX, gridColumns: numColumns, windowWidth } = useResponsive();
   const { posterW, posterH, slotW } = gridPosterSlotDimensions(windowWidth, overscanX, numColumns);
   const { genreId, genreName, mediaType } = route.params;
@@ -89,27 +90,23 @@ export function GenreScreen() {
 
   if (!hasTmdb) {
     return (
-      <View className="flex-1 bg-ink px-4 pt-16">
+      <ThemedScreen className="px-4 pt-16">
         <MissingKeysBanner />
-      </View>
+      </ThemedScreen>
     );
   }
 
   const listPad = GRID_LIST_SIDE_PADDING + overscanX;
 
   return (
-    <View className="flex-1 bg-ink pt-14">
-      <View style={{ paddingHorizontal: listPad }} className="flex-row items-center mb-4">
-        <FocusSurface
-          className="rounded-full bg-black/45 border border-white/15 px-3 py-2 mr-3"
-          onPress={() => navigation.goBack()}
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="arrow-back" color="#fff" size={22} />
-        </FocusSurface>
-        <Text className="text-white text-3xl font-bold flex-1">{genreName}</Text>
+    <ThemedScreen className="pt-14">
+      <View style={{ paddingHorizontal: listPad }} className="flex-row items-center mb-4 gap-3">
+        <ThemedBackButton onPress={() => navigation.goBack()} />
+        <ThemedText variant="title" className="text-3xl flex-1">
+          {genreName}
+        </ThemedText>
       </View>
-      {query.isLoading ? <ActivityIndicator color="#fff" /> : null}
+      {query.isLoading ? <ActivityIndicator color={colors.accent} /> : null}
       <FlashList
         data={flat}
         renderItem={renderItem}
@@ -121,6 +118,6 @@ export function GenreScreen() {
         onEndReached={() => query.fetchNextPage()}
         onEndReachedThreshold={0.65}
       />
-    </View>
+    </ThemedScreen>
   );
 }

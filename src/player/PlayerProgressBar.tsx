@@ -2,8 +2,7 @@ import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { LayoutChangeEvent, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-
-const ACCENT = '#e50914';
+import { BRAND_ACCENT } from '@/theme/colors';
 
 type Props = {
   progress: number;
@@ -139,7 +138,7 @@ export const PlayerProgressBar = memo(function PlayerProgressBar({
             width: thumb.size,
             height: thumb.size,
             borderRadius: thumb.radius,
-            backgroundColor: ACCENT,
+            backgroundColor: BRAND_ACCENT,
             borderWidth: thumb.border,
             borderColor: '#fff',
             shadowColor: '#000',

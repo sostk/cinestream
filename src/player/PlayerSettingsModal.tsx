@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { OnLoadData, TextTracks } from 'react-native-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { OmssSource } from '@/api/types/omss';
+import { useAppTheme } from '@/theme/AppThemeProvider';
 
 export type PlayerSettingsModalProps = {
   visible: boolean;
@@ -29,6 +30,7 @@ export type PlayerSettingsModalProps = {
 
 export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   const {
     visible,
     onClose,
@@ -89,7 +91,32 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
           return px;
         })();
 
-  const pill = 'rounded-2xl px-4 py-3.5 bg-white/12 border border-white/18 active:bg-white/22';
+  const pillStyle = {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: colors.playerHudBorder,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  };
+  const rowStyle = {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: colors.playerHudBorder,
+    borderWidth: 1,
+    borderRadius: 16,
+  };
+  const chipIdle = {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.playerHudBorder,
+    borderWidth: 1,
+    borderRadius: 16,
+  };
+  const chipActive = {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: 16,
+  };
 
   const isAndroidPhone = Platform.OS === 'android' && !Platform.isTV;
   /** Comfortable list rows on small Android screens (Material ~48dp+). */
@@ -103,54 +130,79 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
       <View className="flex-1 justify-end">
         <Pressable className="absolute inset-0 bg-black/75" onPress={onClose} />
         <View
-          className={`mx-3 overflow-hidden border border-white/16 bg-[#0b0c12] max-h-[82%] shadow-2xl ${sheetRadius}`}
-          style={{ marginBottom: Math.max(insets.bottom, isAndroidPhone ? 16 : 12) }}
+          className={`mx-3 overflow-hidden border max-h-[82%] shadow-2xl ${sheetRadius}`}
+          style={{
+            marginBottom: Math.max(insets.bottom, isAndroidPhone ? 16 : 12),
+            backgroundColor: colors.playerHud,
+            borderColor: colors.playerHudBorder,
+          }}
         >
           <View className="items-center pt-3 pb-2">
-            <View className="w-12 h-1 rounded-full bg-white/35" />
+            <View className="w-12 h-1 rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.35)' }} />
           </View>
-          <View className="px-5 pb-3 flex-row items-center justify-between border-b border-white/10">
+          <View
+            className="px-5 pb-3 flex-row items-center justify-between border-b"
+            style={{ borderColor: colors.playerHudBorder }}
+          >
             <View className="flex-row items-center gap-3 flex-1">
-              <View className="w-10 h-10 rounded-2xl bg-accent/20 items-center justify-center border border-accent/25">
-                <Ionicons name="options-outline" color="#fff" size={22} />
+              <View
+                className="w-10 h-10 rounded-2xl items-center justify-center border"
+                style={{ backgroundColor: colors.accentSoft, borderColor: colors.accentBorder }}
+              >
+                <Ionicons name="options-outline" color={colors.playerHudText} size={22} />
               </View>
               <View className="flex-1">
-                <Text className="text-white text-xl font-bold">Playback</Text>
-                <Text className="text-white/45 text-xs mt-0.5">Speed, audio, quality & captions</Text>
+                <Text className="text-xl font-bold" style={{ color: colors.playerHudText }}>
+                  Playback
+                </Text>
+                <Text className="text-xs mt-0.5" style={{ color: colors.playerHudMuted }}>
+                  Speed, audio, quality & captions
+                </Text>
               </View>
             </View>
             <Pressable
               onPress={onClose}
-              className={`rounded-full bg-white/14 border border-white/12 active:bg-white/22 ${isAndroidPhone ? 'p-3' : 'p-2.5'}`}
+              className={`rounded-full border ${isAndroidPhone ? 'p-3' : 'p-2.5'}`}
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.14)',
+                borderColor: colors.playerHudBorder,
+              }}
               accessibilityLabel="Close settings"
               hitSlop={isAndroidPhone ? { top: 8, bottom: 8, left: 8, right: 8 } : undefined}
             >
-              <Ionicons name="close" color="#fff" size={isAndroidPhone ? 24 : 22} />
+              <Ionicons name="close" color={colors.playerHudText} size={isAndroidPhone ? 24 : 22} />
             </Pressable>
           </View>
 
           <ScrollView className={scrollPad} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <View className="flex-row items-center gap-2 mb-3">
               <Ionicons name="speedometer-outline" color="rgba(255,255,255,0.45)" size={17} />
-              <Text className="text-white/45 text-[11px] uppercase tracking-widest font-bold">Speed</Text>
+              <Text
+                className="text-[11px] uppercase tracking-widest font-bold"
+                style={{ color: colors.playerHudMuted }}
+              >
+                Speed
+              </Text>
             </View>
             <View className="flex-row flex-wrap gap-2 mb-7">
               {rates.map((r) => (
                 <Pressable
                   key={r}
                   onPress={() => onRateChange(r)}
-                  className={`rounded-2xl border min-w-[72px] items-center justify-center ${rateChipPad} ${
-                    rate === r ? 'bg-accent border-accent' : 'bg-white/8 border-white/12 active:bg-white/14'
-                  }`}
+                  className={`rounded-2xl min-w-[72px] items-center justify-center ${rateChipPad}`}
+                  style={rate === r ? chipActive : chipIdle}
                 >
-                  <Text className="text-white font-bold text-[15px]">{r}x</Text>
+                  <Text className="font-bold text-[15px]" style={{ color: colors.playerHudText }}>
+                    {r}x
+                  </Text>
                 </Pressable>
               ))}
             </View>
 
             <Pressable
               onPress={() => setVideoExpanded((v) => !v)}
-              className={`rounded-2xl ${tapRow} border border-white/14 bg-white/6 flex-row items-center justify-between active:bg-white/12 ${videoExpanded ? 'mb-2' : 'mb-4'}`}
+              className={`rounded-2xl ${tapRow} flex-row items-center justify-between ${videoExpanded ? 'mb-2' : 'mb-4'}`}
+              style={rowStyle}
               accessibilityRole="button"
               accessibilityState={{ expanded: videoExpanded }}
             >
@@ -335,7 +387,8 @@ export function PlayerSettingsModal(props: PlayerSettingsModalProps) {
             </View>
             <Pressable
               onPress={onMarkIntroEnd}
-              className={`${pill} ${isAndroidPhone ? 'py-5' : ''} mb-10`}
+              className={`${isAndroidPhone ? 'py-5' : ''} mb-10`}
+              style={pillStyle}
             >
               <Text className="text-white font-bold text-[15px]">Mark intro end here</Text>
               <Text className="text-white/48 text-[13px] mt-1.5 leading-[19px]">

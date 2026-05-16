@@ -17,12 +17,15 @@ import {
 import { MediaRow } from '@/components/MediaRow';
 import type { MediaCardModel } from '@/components/MediaCard';
 import { useResponsive } from '@/hooks/useResponsive';
+import { useThemedStyles } from '@/hooks/useThemedStyles';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useLibraryStore, mediaStorageKey } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { FocusSurface } from '@/tv/FocusSurface';
 import { tmdbImg } from '@/services/tmdbImages';
+import { useAppTheme } from '@/theme/AppThemeProvider';
+import { ThemedBackButton } from '@/theme/themedPrimitives';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 const OVERVIEW_PREVIEW_LINES = 5;
@@ -33,6 +36,8 @@ export function MovieDetailScreen() {
   const { id } = route.params;
   const { posterW, posterH, overscanX, sectionGap, heroH } = useResponsive();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useAppTheme();
+  const ts = useThemedStyles();
   const [overviewExpanded, setOverviewExpanded] = useState(false);
   const cineproBaseUrl = useSettingsStore((s) => s.cineproBaseUrl);
   const hasTmdb = useHasConfiguredTmdbKey();
@@ -127,9 +132,11 @@ export function MovieDetailScreen() {
     setOverviewExpanded((v) => !v);
   };
 
+  const hp = Math.max(overscanX, 16);
+
   return (
     <ScrollView
-      className="flex-1 bg-ink"
+      style={{ flex: 1, backgroundColor: colors.ink }}
       contentContainerStyle={{ paddingBottom: sectionGap * 10 }}
       showsVerticalScrollIndicator={false}
     >
@@ -142,35 +149,42 @@ export function MovieDetailScreen() {
           cachePolicy="memory-disk"
         />
         <LinearGradient
-          colors={['rgba(7,8,13,0.15)', 'rgba(7,8,13,0.55)', '#07080d']}
+          colors={colors.heroGradient}
           locations={[0, 0.55, 1]}
           style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
         />
         <View
           style={{
             position: 'absolute',
-            left: overscanX,
-            right: overscanX,
+            left: hp,
+            right: hp,
             top: insets.top + 10,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
           }}
         >
-          <FocusSurface
-            className="rounded-full bg-black/55 border border-white/18 px-3 py-2.5"
-            onPress={() => navigation.goBack()}
-            accessibilityLabel="Go back"
-          >
-            <Ionicons name="chevron-back" color="#fff" size={24} />
-          </FocusSurface>
+          <ThemedBackButton onPress={() => navigation.goBack()} />
         </View>
       </View>
 
-      <View style={{ paddingHorizontal: Math.max(overscanX, 16), marginTop: -72 }}>
-        <View className="rounded-3xl border border-white/12 bg-[#12131c] overflow-hidden shadow-2xl">
+      <View style={{ paddingHorizontal: hp, marginTop: -72 }}>
+        <View
+          className="rounded-3xl overflow-hidden"
+          style={{
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            borderWidth: 1,
+            ...(isDark
+              ? {}
+              : {
+                  shadowColor: colors.shadow,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 12,
+                  elevation: 4,
+                }),
+          }}
+        >
           <LinearGradient
-            colors={['rgba(229,9,20,0.08)', 'transparent']}
+            colors={[colors.accentSoft, 'transparent']}
             style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 120 }}
           />
 
@@ -178,13 +192,13 @@ export function MovieDetailScreen() {
             {loading ? (
               <View className="gap-4 py-2">
                 <View className="flex-row gap-4">
-                  <View className="w-[118px] rounded-2xl bg-white/10 aspect-[2/3]" />
+                  <View className="w-[118px] rounded-2xl aspect-[2/3]" style={ts.skeletonBlock} />
                   <View className="flex-1 gap-2 justify-center">
-                    <View className="h-6 rounded-lg bg-white/10 w-[90%]" />
-                    <View className="h-4 rounded-lg bg-white/10 w-[40%]" />
+                    <View className="h-6 rounded-lg w-[90%]" style={ts.skeletonBlock} />
+                    <View className="h-4 rounded-lg w-[40%]" style={ts.skeletonBlock} />
                   </View>
                 </View>
-                <ActivityIndicator color="#e50914" style={{ marginTop: 16 }} />
+                <ActivityIndicator color={colors.accent} style={{ marginTop: 16 }} />
               </View>
             ) : (
               <>
@@ -197,11 +211,11 @@ export function MovieDetailScreen() {
                     accessibilityLabel={`Poster for ${d?.title ?? 'movie'}`}
                   />
                   <View className="flex-1 justify-center">
-                    <Text className="text-white text-[22px] font-bold leading-7" numberOfLines={3}>
+                    <Text className="text-[22px] font-bold leading-7" style={{ color: colors.text }} numberOfLines={3}>
                       {d?.title ?? 'Untitled'}
                     </Text>
                     {d?.tagline ? (
-                      <Text className="text-white/45 text-sm italic mt-2" numberOfLines={2}>
+                      <Text className="text-sm italic mt-2" style={{ color: colors.textFaint }} numberOfLines={2}>
                         {d.tagline}
                       </Text>
                     ) : null}
@@ -215,41 +229,52 @@ export function MovieDetailScreen() {
                   contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}
                 >
                   {d?.release_date ? (
-                    <View className="rounded-full bg-white/10 border border-white/12 px-3 py-1.5">
-                      <Text className="text-white/90 text-xs font-semibold">{d.release_date.slice(0, 4)}</Text>
+                    <View style={ts.metaChip}>
+                      <Text className="text-xs font-semibold" style={{ color: colors.text }}>
+                        {d.release_date.slice(0, 4)}
+                      </Text>
                     </View>
                   ) : null}
                   {runtimeLabel ? (
-                    <View className="rounded-full bg-white/10 border border-white/12 px-3 py-1.5 flex-row items-center gap-1">
-                      <Ionicons name="time-outline" color="rgba(255,255,255,0.85)" size={14} />
-                      <Text className="text-white/90 text-xs font-semibold">{runtimeLabel}</Text>
+                    <View style={[ts.metaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                      <Ionicons name="time-outline" color={colors.textMuted} size={14} />
+                      <Text className="text-xs font-semibold" style={{ color: colors.text }}>
+                        {runtimeLabel}
+                      </Text>
                     </View>
                   ) : null}
                   {d?.vote_average != null ? (
-                    <View className="rounded-full bg-white/10 border border-white/12 px-3 py-1.5 flex-row items-center gap-1">
+                    <View style={[ts.metaChip, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                       <Ionicons name="star" color="#f5c518" size={14} />
-                      <Text className="text-white/90 text-xs font-semibold">{d.vote_average.toFixed(1)} TMDB</Text>
+                      <Text className="text-xs font-semibold" style={{ color: colors.text }}>
+                        {d.vote_average.toFixed(1)} TMDB
+                      </Text>
                     </View>
                   ) : null}
                   {(d?.genres ?? []).map((g) => (
-                    <View key={g.id} className="rounded-full bg-accent/20 border border-accent/35 px-3 py-1.5">
-                      <Text className="text-white text-xs font-medium">{g.name}</Text>
+                    <View key={g.id} style={ts.genreChip}>
+                      <Text className="text-xs font-medium" style={{ color: colors.text }}>
+                        {g.name}
+                      </Text>
                     </View>
                   ))}
                 </ScrollView>
 
                 {d?.overview ? (
                   <View className="mt-5">
-                    <Text className="text-white/55 text-xs uppercase tracking-widest mb-2">Synopsis</Text>
+                    <Text className="text-xs uppercase tracking-widest mb-2" style={{ color: colors.textMuted }}>
+                      Synopsis
+                    </Text>
                     <Text
-                      className="text-white/85 text-[15px] leading-6"
+                      className="text-[15px] leading-6"
+                      style={{ color: colors.text }}
                       numberOfLines={overviewExpanded ? undefined : OVERVIEW_PREVIEW_LINES}
                     >
                       {d.overview}
                     </Text>
                     {(d.overview?.length ?? 0) > 220 ? (
                       <FocusSurface className="self-start mt-2 py-1" onPress={toggleOverview}>
-                        <Text className="text-accent text-sm font-semibold">
+                        <Text className="text-sm font-semibold" style={{ color: colors.accent }}>
                           {overviewExpanded ? 'Show less' : 'Read more'}
                         </Text>
                       </FocusSurface>
@@ -259,9 +284,12 @@ export function MovieDetailScreen() {
 
                 <View className="mt-6 gap-3">
                   <FocusSurface
-                    className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 shadow-lg ${
-                      streamState.status === 'ready' ? 'bg-accent' : 'bg-white/14 border border-white/16'
-                    }`}
+                    className="rounded-2xl py-4 flex-row items-center justify-center gap-2"
+                    style={
+                      streamState.status === 'ready'
+                        ? ts.accentButton
+                        : { ...ts.secondaryButton, paddingVertical: 16 }
+                    }
                     onPress={onPlay}
                     accessibilityLabel={
                       streamState.status === 'loading'
@@ -272,15 +300,20 @@ export function MovieDetailScreen() {
                     }
                   >
                     {streamState.status === 'loading' ? (
-                      <ActivityIndicator color="#fff" size="small" />
+                      <ActivityIndicator color={colors.textOnAccent} size="small" />
                     ) : (
                       <Ionicons
                         name={resumeSec ? 'play-circle' : 'play'}
-                        color="#fff"
+                        color={streamState.status === 'ready' ? colors.textOnAccent : colors.text}
                         size={22}
                       />
                     )}
-                    <Text className="text-white font-bold text-base">
+                    <Text
+                      className="font-bold text-base"
+                      style={{
+                        color: streamState.status === 'ready' ? colors.textOnAccent : colors.text,
+                      }}
+                    >
                       {streamState.status === 'loading'
                         ? 'Loading streams…'
                         : resumeSec
@@ -291,7 +324,8 @@ export function MovieDetailScreen() {
 
                   <View className="flex-row gap-3">
                     <FocusSurface
-                      className="flex-1 rounded-2xl bg-white/10 border border-white/14 py-3.5 flex-row items-center justify-center gap-2"
+                      className="flex-1 rounded-2xl py-3.5 flex-row items-center justify-center gap-2"
+                      style={ts.secondaryButton}
                       onPress={() =>
                         d &&
                         toggleWatchlist({
@@ -305,13 +339,16 @@ export function MovieDetailScreen() {
                     >
                       <Ionicons
                         name={inWatchlist ? 'bookmark' : 'bookmark-outline'}
-                        color="#fff"
+                        color={colors.text}
                         size={20}
                       />
-                      <Text className="text-white font-semibold text-sm">Watchlist</Text>
+                      <Text className="font-semibold text-sm" style={{ color: colors.text }}>
+                        Watchlist
+                      </Text>
                     </FocusSurface>
                     <FocusSurface
-                      className="flex-1 rounded-2xl bg-white/10 border border-white/14 py-3.5 flex-row items-center justify-center gap-2"
+                      className="flex-1 rounded-2xl py-3.5 flex-row items-center justify-center gap-2"
+                      style={ts.secondaryButton}
                       onPress={() =>
                         d &&
                         toggleFavorite({
@@ -325,15 +362,17 @@ export function MovieDetailScreen() {
                     >
                       <Ionicons
                         name={inFavorites ? 'heart' : 'heart-outline'}
-                        color={inFavorites ? '#ff5c66' : '#fff'}
+                        color={inFavorites ? colors.accentMuted : colors.text}
                         size={20}
                       />
-                      <Text className="text-white font-semibold text-sm">Favorite</Text>
+                      <Text className="font-semibold text-sm" style={{ color: colors.text }}>
+                        Favorite
+                      </Text>
                     </FocusSurface>
                   </View>
                 </View>
 
-                <View className="mt-6 rounded-2xl bg-white/[0.06] border border-white/10 p-4">
+                <View className="mt-6" style={ts.infoPanel}>
                   <View className="flex-row items-center gap-2 mb-2">
                     <Ionicons
                       name={
@@ -345,12 +384,14 @@ export function MovieDetailScreen() {
                               ? 'cloud-offline-outline'
                               : 'cloud-outline'
                       }
-                      color="rgba(255,255,255,0.75)"
+                      color={colors.textMuted}
                       size={20}
                     />
-                    <Text className="text-white font-semibold text-[15px]">Streaming availability</Text>
+                    <Text className="font-semibold text-[15px]" style={{ color: colors.text }}>
+                      Streaming availability
+                    </Text>
                   </View>
-                  <Text className="text-white/65 text-sm leading-5">
+                  <Text className="text-sm leading-5" style={{ color: colors.textMuted }}>
                     {streamAvailabilityDetailLine(streamState, sources.data?.expiresAt)}
                   </Text>
                 </View>

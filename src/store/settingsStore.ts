@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { PlayerAspectMode, PlayerResizeMode } from '@/player/playerDisplay';
+import type { ThemeMode } from '@/theme/colors';
+
+export type { ThemeMode };
 
 type SettingsState = {
   cineproBaseUrl: string;
@@ -14,6 +17,7 @@ type SettingsState = {
   playerResizeMode: PlayerResizeMode;
   /** Android player: letterbox target frame; auto uses full screen. */
   playerAspectMode: PlayerAspectMode;
+  themeMode: ThemeMode;
   setCineproBaseUrl: (url: string) => void;
   setTmdbApiKey: (key: string) => void;
   completeOnboarding: (payload: { tmdbApiKey: string; cineproBaseUrl: string }) => void;
@@ -23,9 +27,16 @@ type SettingsState = {
   setAutoplayNextEpisode: (v: boolean) => void;
   setPlayerResizeMode: (mode: PlayerResizeMode) => void;
   setPlayerAspectMode: (mode: PlayerAspectMode) => void;
+  setThemeMode: (mode: ThemeMode) => void;
 };
 
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
+
+const THEME_MODES = new Set<ThemeMode>(['light', 'dark']);
+
+function coerceThemeMode(v: unknown): ThemeMode {
+  return typeof v === 'string' && THEME_MODES.has(v as ThemeMode) ? (v as ThemeMode) : 'dark';
+}
 
 const RESIZE_MODES = new Set<PlayerResizeMode>(['contain', 'cover', 'stretch', 'none']);
 const ASPECT_MODES = new Set<PlayerAspectMode>(['auto', '16:9', '4:3', '21:9']);
@@ -49,6 +60,7 @@ export const useSettingsStore = create<SettingsState>()(
       autoplayNextEpisode: true,
       playerResizeMode: 'cover',
       playerAspectMode: 'auto',
+      themeMode: 'dark',
 
       setCineproBaseUrl: (url) => set({ cineproBaseUrl: url.trim().replace(/\/$/, '') }),
 
@@ -68,6 +80,7 @@ export const useSettingsStore = create<SettingsState>()(
       setAutoplayNextEpisode: (v) => set({ autoplayNextEpisode: v }),
       setPlayerResizeMode: (mode) => set({ playerResizeMode: mode }),
       setPlayerAspectMode: (mode) => set({ playerAspectMode: mode }),
+      setThemeMode: (mode) => set({ themeMode: mode }),
     }),
     {
       name: 'cinestream-settings',
@@ -82,6 +95,7 @@ export const useSettingsStore = create<SettingsState>()(
         autoplayNextEpisode: s.autoplayNextEpisode,
         playerResizeMode: s.playerResizeMode,
         playerAspectMode: s.playerAspectMode,
+        themeMode: s.themeMode,
       }),
       migrate: (persistedState, version) => {
         const p = persistedState as Partial<{
@@ -92,6 +106,7 @@ export const useSettingsStore = create<SettingsState>()(
           autoplayNextEpisode: boolean;
           playerResizeMode: PlayerResizeMode;
           playerAspectMode: PlayerAspectMode;
+          themeMode: ThemeMode;
         }>;
 
         if (version < SETTINGS_VERSION) {
@@ -104,6 +119,7 @@ export const useSettingsStore = create<SettingsState>()(
             autoplayNextEpisode: typeof p.autoplayNextEpisode === 'boolean' ? p.autoplayNextEpisode : true,
             playerResizeMode: coerceResizeMode(p.playerResizeMode),
             playerAspectMode: coerceAspectMode(p.playerAspectMode),
+            themeMode: coerceThemeMode(p.themeMode),
           };
         }
 
@@ -116,6 +132,7 @@ export const useSettingsStore = create<SettingsState>()(
           autoplayNextEpisode: boolean;
           playerResizeMode: PlayerResizeMode;
           playerAspectMode: PlayerAspectMode;
+          themeMode: ThemeMode;
         };
       },
     }

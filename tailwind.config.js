@@ -9,6 +9,7 @@ module.exports = {
         surface: '#0f111a',
         elevated: '#161929',
         accent: '#e50914',
+        'accent-muted': '#ff5c66',
         accentMuted: '#ff5c66',
         frost: 'rgba(255,255,255,0.06)',
       },

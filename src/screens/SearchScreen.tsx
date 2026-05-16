@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, TextInput, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { TmdbApi } from '@/api/tmdbClient';
@@ -9,9 +9,11 @@ import type { MediaCardModel } from '@/components/MediaCard';
 import { MissingKeysBanner } from '@/components/MissingKeysBanner';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useResponsive } from '@/hooks/useResponsive';
+import { useThemedStyles } from '@/hooks/useThemedStyles';
 import { useAppNavigation } from '@/navigation/useAppNavigation';
 import { useHasConfiguredTmdbKey } from '@/utils/tmdbCredentials';
 import { GRID_LIST_SIDE_PADDING, GRID_ROW_GAP, gridPosterSlotDimensions } from '@/utils/layout';
+import { ThemedScreen, ThemedText } from '@/theme/themedPrimitives';
 
 function toModel(hit: TmdbMultiSearchResult): MediaCardModel | null {
   if (hit.media_type === 'movie') {
@@ -41,6 +43,7 @@ export function SearchScreen() {
   const navigation = useAppNavigation();
   const { overscanX, gridColumns: numColumns, windowWidth } = useResponsive();
   const { posterW, posterH, slotW } = gridPosterSlotDimensions(windowWidth, overscanX, numColumns);
+  const ts = useThemedStyles();
   const [q, setQ] = useState('');
   const debounced = useDebouncedValue(q, 380);
   const hasTmdb = useHasConfiguredTmdbKey();
@@ -85,37 +88,40 @@ export function SearchScreen() {
 
   if (!hasTmdb) {
     return (
-      <View className="flex-1 bg-ink px-4 pt-12">
+      <ThemedScreen className="px-4 pt-12">
         <MissingKeysBanner />
-      </View>
+      </ThemedScreen>
     );
   }
 
   const listPad = GRID_LIST_SIDE_PADDING + overscanX;
 
   return (
-    <View className="flex-1 bg-ink pt-12">
+    <ThemedScreen className="pt-12">
       <View style={{ paddingHorizontal: listPad }}>
-        <Text className="text-white text-2xl font-bold mb-4">Search</Text>
+        <ThemedText variant="title" className="text-2xl mb-4">
+          Search
+        </ThemedText>
         <TextInput
           value={q}
           onChangeText={setQ}
           placeholder="Titles, people, keywords…"
-          placeholderTextColor="rgba(255,255,255,0.35)"
-          className="mb-4 rounded-2xl bg-white/10 text-white px-4 py-3 border border-white/10"
+          placeholderTextColor={ts.placeholder}
+          className="mb-4 rounded-2xl px-4 py-3"
+          style={ts.input}
           accessibilityLabel="Search catalog"
           autoCorrect={false}
         />
       </View>
 
       {query.isFetching ? (
-        <ActivityIndicator color="#fff" style={{ marginTop: 24 }} />
+        <ActivityIndicator color={ts.colors.accent} style={{ marginTop: 24 }} />
       ) : null}
 
       {!enabled ? (
-        <Text style={{ paddingHorizontal: listPad }} className="text-white/50">
+        <ThemedText variant="muted" style={{ paddingHorizontal: listPad }}>
           Type at least two characters to search TMDB.
-        </Text>
+        </ThemedText>
       ) : (
         <FlashList
           data={flat}
@@ -129,6 +135,6 @@ export function SearchScreen() {
           onEndReachedThreshold={0.7}
         />
       )}
-    </View>
+    </ThemedScreen>
   );
 }
